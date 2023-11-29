@@ -139,6 +139,10 @@ class StringStream final {
   std::unique_ptr<char[]> ToCString() const;
   int length() const { return length_; }
 
+  // Add by Inactive
+  bool ShouldPrintName(Object* name, const std::string& sub_str);
+  bool ShouldPrintName(Handle<Name> name, const std::string& sub_str);
+
   // Object printing support.
   void PrintName(Object* o);
   void PrintFixedArray(FixedArray* array, unsigned int limit);

@@ -11,9 +11,16 @@
 #include "src/messages.h"
 #include "src/property-descriptor.h"
 #include "src/runtime/runtime.h"
+#include "src/SHA256.h"
+#include "../third_party/jsoncpp/source/include/json/json.h"
+#include "../third_party/jsoncpp/source/include/json/value.h"
 
 namespace v8 {
 namespace internal {
+
+// Add by Inactive
+Json::Value undef_prop_dataset;
+bool undef_prop_dataset_loaded = false;
 
 MaybeHandle<Object> Runtime::GetObjectProperty(
     Isolate* isolate, Handle<Object> object, Handle<Object> key,
@@ -28,13 +35,161 @@ MaybeHandle<Object> Runtime::GetObjectProperty(
   bool success = false;
   LookupIterator it =
       LookupIterator::PropertyOrElement(isolate, object, key, &success);
-  if (!success) return MaybeHandle<Object>();
+  if (!success) {
+    // std::cout << "UnsuccessKeyIs: ";
+    // key->Print();
+    // std::cout << " ObjectAddress: ";
+    // object->Print();
+    // std::cout << " IsString? " << key->IsString() << '\n';
+    return MaybeHandle<Object>();
+  }
 
   MaybeHandle<Object> result = Object::GetProperty(&it);
+
+  // Add hook to print JS info here, due to undefined key
+  // Added by Inactive
+  if ((FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) && (result.is_null() || !it.IsFound()) && key->IsString()) {
+    // We ignore the case where key->IsSymbol()
+    HeapStringAllocator allocator;
+    StringStream accumulator(&allocator);
+    accumulator.Add("RTO KeyIs ");
+    key->ShortPrint(&accumulator);
+    if (isolate->ConcisePrint(&accumulator)) {
+      accumulator.Add(" RTOEnd\n");
+      accumulator.OutputToFile(stdout);
+    }
+  }
+  
+  // Taint obj here, due to tainted key
+  // Added by client-pp
+
+  if (FLAG_prototype_pollution_enable_cout && !result.is_null()) { // delete && it.IsFound()
+    Handle<Object> handle_result = result.ToHandleChecked();
+
+    if (key->IsString()) { // prototype pollution branch
+      // Do not use Handle<String>::cast(key)->taint_info()
+      String *string_key = *Handle<String>::cast(key); 
+      tainttracking::TaintType key_taint_type = tainttracking::GetTaintStatusRange(string_key, 0, string_key->length());
+      bool is_key_tainted = key_taint_type != tainttracking::TaintType::UNTAINTED;
+      if (is_key_tainted) {
+        if (handle_result->IsHeapObject()) {
+          // TODO: what if ->IsUndefined(isolate) ?
+          handle_result->SetIsPrototypePolluted();
+          PrintF("ObjTaintedDueToTaintKey! ObjectAddress: ");
+          handle_result->Print();
+          PrintF(" KeyTaintType %s KeyIs ", tainttracking::TaintTypeToString(key_taint_type).c_str());
+          // Failed when using handle_result->address() 
+          key->Print();
+          PrintF("\n");
+        }
+      }
+    }
+  }
+
+  // Mark inactive taint here, due to query result
+  // Added by Inactive
+  if (!FLAG_inactive_conseq_log_enable && (FLAG_phase3_enable || FLAG_inactive_taint_enable) && FLAG_undef_prop_dataset_file && !result.is_null()) {
+    Handle<Object> handle_result = result.ToHandleChecked();
+
+    if (key->IsString() && handle_result->IsString()) {
+      String *string_key = *Handle<String>::cast(key); 
+      String *string_result = *Handle<String>::cast(handle_result); 
+      tainttracking::TaintType result_taint_type = tainttracking::GetTaintStatusRange(string_result, 0, string_result->length());
+      if (result_taint_type != tainttracking::TaintType::INACTIVE) {
+      
+        // Get source code hash
+        HeapStringAllocator source_code_allocator;
+        StringStream source_code_accumulator(&source_code_allocator);
+        HeapStringAllocator line_number_allocator;
+        StringStream line_number_accumulator(&line_number_allocator);
+        // Update: line_number_accumulator also includes column number. "%d,%d"
+        if (isolate->DoGetScriptInfo(&source_code_accumulator, &line_number_accumulator)) {
+          // Ref: https://github.com/System-Glitch/SHA256/blob/master/src/main.cpp
+          SHA256 sha;
+          sha.update(source_code_accumulator.ToCString().get());
+          uint8_t * digest = sha.digest();
+          std::string query_str = SHA256::toString(digest);
+          // if (FLAG_gdbjit) {
+          //     // Debug outputs
+          //     PrintF("Key is ");
+          //     key->Print();
+          //     PrintF("\nSource hash is %s ;\n Source code is:\n=============\n%s\n", 
+          //     query_str.c_str(), source_code_accumulator.ToCString().get() );
+          //   }
+          
+          // Query the key
+          if (!v8::internal::undef_prop_dataset_loaded) {
+            
+            // Load the dataset
+            std::ifstream data_file(FLAG_undef_prop_dataset_file, std::ifstream::binary);
+            data_file >> v8::internal::undef_prop_dataset; 
+            v8::internal::undef_prop_dataset_loaded = true;
+            if (FLAG_gdbjit) {
+              // Debug outputs
+              std::cout << "Load data success: size() == " << v8::internal::undef_prop_dataset.size() << '\n';
+              if (v8::internal::undef_prop_dataset.isMember("54ecb62ece07d8dcfd800078489817e4a2cf32f7bcf3a00f68ad55bf59234dfb")) {
+                std::cout << "Binary data: Test case is indeed member!\n";
+              }
+              else {
+                std::cout << "Binary data: Test case is not member!\n";
+              }
+
+              Json::Value test_set;
+              std::ifstream test_data_file(FLAG_undef_prop_dataset_file);
+              test_data_file >> test_set;
+              std::cout << "Load data success: size() == " << test_set.size() << '\n';
+              if (test_set.isMember("54ecb62ece07d8dcfd800078489817e4a2cf32f7bcf3a00f68ad55bf59234dfb")) {
+                std::cout << "Non-Binary data: Test case is indeed member!\n";
+              }
+              else {
+                std::cout << "Non-Binary data: Test case is not member!\n";
+              }
+            }
+          }
+          // If true, mark as inactive tainted
+          if (v8::internal::undef_prop_dataset.isMember(query_str)) {
+            if (FLAG_gdbjit) {
+              // Debug outputs
+              PrintF("The query %s is indeed a member!\n", query_str.c_str());
+            }
+            Json::Value result_obj = v8::internal::undef_prop_dataset[query_str];
+
+            HeapStringAllocator key_allocator;
+            StringStream key_accumulator(&key_allocator);
+            string_key->StringShortPrint(&key_accumulator, false);
+            // String *string_key = *Handle<String>::cast(key);
+            // v8::String::Utf8Value str_key(*string_key);
+            std::string cppStr_key = key_accumulator.ToCString().get();
+            // std::string cppStr_key = Handle<String>::cast(key).str();
+            if (!cppStr_key.empty() && result_obj.isMember(cppStr_key)) {
+              Json::Value result_line_number = result_obj[cppStr_key];
+              if (Json::Value(line_number_accumulator.ToCString().get()) == result_line_number) {
+                HeapStringAllocator log_allocator;
+                StringStream log_accumulator(&log_allocator);
+                log_accumulator.Add("StartingLog... "); 
+                string_key->StringShortPrint(&log_accumulator);
+                log_accumulator.Add(" || ");
+                string_result->StringShortPrint(&log_accumulator);
+                log_accumulator.Add(" this key||value has been marked as tainted! \n");
+                log_accumulator.Add(" Source code is:%s\n", source_code_accumulator.ToCString().get());
+                log_accumulator.Add(" Line:%s\n", line_number_accumulator.ToCString().get());
+                log_accumulator.Add(" code_hash is:%s LogEnd\n", query_str.c_str());
+                tainttracking::SetTaint(handle_result, tainttracking::TaintType::INACTIVE);
+                log_accumulator.OutputToFile(stdout);
+              }
+            }
+          }
+          delete[] digest;
+        }
+      }
+    }
+  }
+  
   if (!result.is_null() && should_throw_reference_error && !it.IsFound()) {
     THROW_NEW_ERROR(
         isolate, NewReferenceError(MessageTemplate::kNotDefined, key), Object);
   }
+
   return result;
 }
 
@@ -68,7 +223,80 @@ static MaybeHandle<Object> KeyedGetObjectProperty(Isolate* isolate,
           if (cell->property_details().type() == DATA) {
             Object* value = cell->value();
             if (!value->IsTheHole(isolate)) {
-              return Handle<Object>(value, isolate);
+              // Mark inactive taint here, due to query result
+              // Added by Inactive
+              Handle<Object> handle_result = Handle<Object>(value, isolate);
+              if (!FLAG_inactive_conseq_log_enable && (FLAG_phase3_enable || FLAG_inactive_taint_enable) && FLAG_undef_prop_dataset_file && !handle_result.is_null()) {
+                if (key->IsString() && handle_result->IsString()) { 
+                  String *string_key = *Handle<String>::cast(key); 
+                  String *string_result = *Handle<String>::cast(handle_result); 
+                  tainttracking::TaintType result_taint_type = tainttracking::GetTaintStatusRange(string_result, 0, string_result->length());
+                  if (result_taint_type != tainttracking::TaintType::INACTIVE) {
+                  
+                    // Get source code hash
+                    HeapStringAllocator source_code_allocator;
+                    StringStream source_code_accumulator(&source_code_allocator);
+                    HeapStringAllocator line_number_allocator;
+                    StringStream line_number_accumulator(&line_number_allocator);
+                    // Update: line_number_accumulator also includes column number. "%d,%d"
+                    if (isolate->DoGetScriptInfo(&source_code_accumulator, &line_number_accumulator)) {
+                    //   // Ref: https://github.com/System-Glitch/SHA256/blob/master/src/main.cpp
+                      SHA256 sha;
+                      sha.update(source_code_accumulator.ToCString().get());
+                      uint8_t * digest = sha.digest();
+                      std::string query_str = SHA256::toString(digest);
+                      // if (FLAG_gdbjit) {
+                      //     // Debug outputs
+                      //     PrintF("Key is ");
+                      //     key->Print();
+                      //     PrintF("\nSource hash is %s ;\n Source code is:\n=============\n%s\n", 
+                      //     query_str.c_str(), source_code_accumulator.ToCString().get() );
+                      //   }
+                      
+                      // Query the key
+                      if (!v8::internal::undef_prop_dataset_loaded) {
+                        
+                        // Load the dataset
+                        std::ifstream data_file(FLAG_undef_prop_dataset_file, std::ifstream::binary);
+                        data_file >> v8::internal::undef_prop_dataset; 
+                        v8::internal::undef_prop_dataset_loaded = true;
+                      }
+                      // If true, mark as inactive tainted
+                      if (v8::internal::undef_prop_dataset.isMember(query_str)) {
+                        Json::Value result_obj = v8::internal::undef_prop_dataset[query_str];
+
+                        HeapStringAllocator key_allocator;
+                        StringStream key_accumulator(&key_allocator);
+                        string_key->StringShortPrint(&key_accumulator, false);
+                        // String *string_key = *Handle<String>::cast(key);
+                        // v8::String::Utf8Value str_key(*string_key);
+                        std::string cppStr_key = key_accumulator.ToCString().get();
+                        // std::string cppStr_key = Handle<String>::cast(key).str();
+                        if (!cppStr_key.empty() && result_obj.isMember(cppStr_key)) {
+                          Json::Value result_line_number = result_obj[cppStr_key];
+                          if (Json::Value(line_number_accumulator.ToCString().get()) == result_line_number) {
+                            HeapStringAllocator log_allocator;
+                            StringStream log_accumulator(&log_allocator);
+                            log_accumulator.Add("StartingLog... "); 
+                            string_key->StringShortPrint(&log_accumulator);
+                            log_accumulator.Add(" || ");
+                            string_result->StringShortPrint(&log_accumulator);
+                            log_accumulator.Add(" this key||value has been marked as tainted! \n");
+                            log_accumulator.Add(" Source code is:%s\n", source_code_accumulator.ToCString().get());
+                            log_accumulator.Add(" Line:%s\n", line_number_accumulator.ToCString().get());
+                            log_accumulator.Add(" code_hash is:%s LogEnd\n", query_str.c_str());
+                            tainttracking::SetTaint(handle_result, tainttracking::TaintType::INACTIVE);
+                            log_accumulator.OutputToFile(stdout);
+                          }
+                        }
+                      }
+                      delete[] digest;
+                    }
+                  }
+                }
+              }
+  
+              return handle_result; // Handle<Object>(value, isolate);
             }
             // If value is the hole (meaning, absent) do the general lookup.
           }
@@ -80,7 +308,73 @@ static MaybeHandle<Object> KeyedGetObjectProperty(Isolate* isolate,
         if ((entry != NameDictionary::kNotFound) &&
             (dictionary->DetailsAt(entry).type() == DATA)) {
           Object* value = dictionary->ValueAt(entry);
-          return Handle<Object>(value, isolate);
+          // Mark inactive taint here, due to query result
+          // Added by Inactive
+          Handle<Object> handle_result = Handle<Object>(value, isolate);
+          if (!FLAG_inactive_conseq_log_enable && (FLAG_phase3_enable || FLAG_inactive_taint_enable) && FLAG_undef_prop_dataset_file && !handle_result.is_null()) {
+            if (key->IsString() && handle_result->IsString()) {
+              String *string_key = *Handle<String>::cast(key); 
+              String *string_result = *Handle<String>::cast(handle_result); 
+              tainttracking::TaintType result_taint_type = tainttracking::GetTaintStatusRange(string_result, 0, string_result->length());
+              if (result_taint_type != tainttracking::TaintType::INACTIVE) {
+              
+                // Get source code hash
+                HeapStringAllocator source_code_allocator;
+                StringStream source_code_accumulator(&source_code_allocator);
+                HeapStringAllocator line_number_allocator;
+                StringStream line_number_accumulator(&line_number_allocator);
+                // Update: line_number_accumulator also includes column number. "%d,%d"
+                if (isolate->DoGetScriptInfo(&source_code_accumulator, &line_number_accumulator)) {
+                //   // Ref: https://github.com/System-Glitch/SHA256/blob/master/src/main.cpp
+                  SHA256 sha;
+                  sha.update(source_code_accumulator.ToCString().get());
+                  uint8_t * digest = sha.digest();
+                  std::string query_str = SHA256::toString(digest);
+                  
+                  // Query the key
+                  if (!v8::internal::undef_prop_dataset_loaded) {
+                    
+                    // Load the dataset
+                    std::ifstream data_file(FLAG_undef_prop_dataset_file, std::ifstream::binary);
+                    data_file >> v8::internal::undef_prop_dataset; 
+                    v8::internal::undef_prop_dataset_loaded = true;
+                  }
+                  // If true, mark as inactive tainted
+                  if (v8::internal::undef_prop_dataset.isMember(query_str)) {
+                    Json::Value result_obj = v8::internal::undef_prop_dataset[query_str];
+
+                    HeapStringAllocator key_allocator;
+                    StringStream key_accumulator(&key_allocator);
+                    string_key->StringShortPrint(&key_accumulator, false);
+                    // String *string_key = *Handle<String>::cast(key);
+                    // v8::String::Utf8Value str_key(*string_key);
+                    std::string cppStr_key = key_accumulator.ToCString().get();
+                    // std::string cppStr_key = Handle<String>::cast(key).str();
+                    if (!cppStr_key.empty() && result_obj.isMember(cppStr_key)) {
+                      Json::Value result_line_number = result_obj[cppStr_key];
+                      if (Json::Value(line_number_accumulator.ToCString().get()) == result_line_number) {
+                        HeapStringAllocator log_allocator;
+                        StringStream log_accumulator(&log_allocator);
+                        log_accumulator.Add("StartingLog... "); 
+                        string_key->StringShortPrint(&log_accumulator);
+                        log_accumulator.Add(" || ");
+                        string_result->StringShortPrint(&log_accumulator);
+                        log_accumulator.Add(" this key||value has been marked as tainted! \n");
+                        log_accumulator.Add(" Source code is:%s\n", source_code_accumulator.ToCString().get());
+                        log_accumulator.Add(" Line:%s\n", line_number_accumulator.ToCString().get());
+                        log_accumulator.Add(" code_hash is:%s LogEnd\n", query_str.c_str());
+                        tainttracking::SetTaint(handle_result, tainttracking::TaintType::INACTIVE);
+                        log_accumulator.OutputToFile(stdout);
+                      }
+                    }
+                  }
+                  delete[] digest;
+                }
+              }
+            }
+          }
+
+          return handle_result; // Handle<Object>(value, isolate);
         }
       }
     } else if (key_obj->IsSmi()) {
@@ -110,8 +404,80 @@ static MaybeHandle<Object> KeyedGetObjectProperty(Isolate* isolate,
     int index = Handle<Smi>::cast(key_obj)->value();
     if (index >= 0 && index < str->length()) {
       Factory* factory = isolate->factory();
-      return factory->LookupSingleCharacterStringFromCode(
+      // Mark inactive taint here, due to query result
+      // Added by Inactive
+      Handle<Object> handle_result = factory->LookupSingleCharacterStringFromCode(
           String::Flatten(str)->Get(index));
+      if (!FLAG_inactive_conseq_log_enable && (FLAG_phase3_enable || FLAG_inactive_taint_enable) && FLAG_undef_prop_dataset_file && !handle_result.is_null()) {
+        if (handle_result->IsString()) {
+          // String *string_key = *Handle<String>::cast(key_obj); 
+          String *string_result = *Handle<String>::cast(handle_result); 
+          tainttracking::TaintType result_taint_type = tainttracking::GetTaintStatusRange(string_result, 0, string_result->length());
+          if (result_taint_type != tainttracking::TaintType::INACTIVE) {
+          
+            // Get source code hash
+            HeapStringAllocator source_code_allocator;
+            StringStream source_code_accumulator(&source_code_allocator);
+            HeapStringAllocator line_number_allocator;
+            StringStream line_number_accumulator(&line_number_allocator);
+            // Update: line_number_accumulator also includes column number. "%d,%d"
+            if (isolate->DoGetScriptInfo(&source_code_accumulator, &line_number_accumulator)) {
+            //   // Ref: https://github.com/System-Glitch/SHA256/blob/master/src/main.cpp
+              SHA256 sha;
+              sha.update(source_code_accumulator.ToCString().get());
+              uint8_t * digest = sha.digest();
+              std::string query_str = SHA256::toString(digest);
+              
+              // Query the key
+              if (!v8::internal::undef_prop_dataset_loaded) {
+                
+                // Load the dataset
+                std::ifstream data_file(FLAG_undef_prop_dataset_file, std::ifstream::binary);
+                data_file >> v8::internal::undef_prop_dataset; 
+                v8::internal::undef_prop_dataset_loaded = true;
+              }
+              // If true, mark as inactive tainted
+              if (v8::internal::undef_prop_dataset.isMember(query_str)) {
+                Json::Value result_obj = v8::internal::undef_prop_dataset[query_str];
+
+                HeapStringAllocator key_allocator;
+                StringStream key_accumulator(&key_allocator);
+                // Special Print for Smi
+                std::string indexStr = std::to_string(index);
+                if (indexStr.length() == 1) {
+                  key_accumulator.Put(static_cast<char>(index));
+                } else {
+                  DCHECK(indexStr.length() > 1);
+                  key_accumulator.Add(indexStr.c_str());
+                }
+                std::string cppStr_key = key_accumulator.ToCString().get();
+                // std::string cppStr_key = Handle<String>::cast(key).str();
+                if (!cppStr_key.empty() && result_obj.isMember(cppStr_key)) {
+                  Json::Value result_line_number = result_obj[cppStr_key];
+                  if (Json::Value(line_number_accumulator.ToCString().get()) == result_line_number) {
+                    HeapStringAllocator log_allocator;
+                    StringStream log_accumulator(&log_allocator);
+                    log_accumulator.Add("StartingLog... "); 
+                    // string_key->StringShortPrint(&log_accumulator);
+                    log_accumulator.Add("<String[%d]: %d>", indexStr.length(), index);
+                    log_accumulator.Add(" || ");
+                    string_result->StringShortPrint(&log_accumulator);
+                    log_accumulator.Add(" this key||value has been marked as tainted! \n");
+                    log_accumulator.Add(" Source code is:%s\n", source_code_accumulator.ToCString().get());
+                    log_accumulator.Add(" Line:%s\n", line_number_accumulator.ToCString().get());
+                    log_accumulator.Add(" code_hash is:%s LogEnd\n", query_str.c_str());
+                    tainttracking::SetTaint(handle_result, tainttracking::TaintType::INACTIVE);
+                    log_accumulator.OutputToFile(stdout);
+                  }
+                }
+              }
+              delete[] digest;
+            }
+          }
+        }
+      }
+
+      return handle_result; // factory->LookupSingleCharacterStringFromCode(String::Flatten(str)->Get(index))
     }
   }
 
@@ -227,8 +593,68 @@ MaybeHandle<Object> Runtime::SetObjectProperty(Isolate* isolate,
       LookupIterator::PropertyOrElement(isolate, object, key, &success);
   if (!success) return MaybeHandle<Object>();
 
+  // Convert to JSReceiver
+  // if (object->IsJSObject()) {
+    // JSObject *obj_receiver = JSObject::cast(*object);
+  
+    // Taint obj here, due to tainted key and value
+    // Added by client-pp
+    if (FLAG_prototype_pollution_enable_cout && key->IsString() && (value->IsString() || value->IsHeapObject())) {
+      if (object->IsHeapObject() && object->IsPrototypePolluted()) {
+        // bool is_key_tainted = Handle<String>::cast(key)->taint_info() != tainttracking::TaintType::UNTAINTED;
+        // bool is_value_tainted = Handle<String>::cast(value)->taint_info() != tainttracking::TaintType::UNTAINTED;
+        String *string_key = *Handle<String>::cast(key); 
+        tainttracking::TaintType key_taint_type = tainttracking::GetTaintStatusRange(string_key, 0, string_key->length());
+        bool is_key_tainted = key_taint_type != tainttracking::TaintType::UNTAINTED;
+        bool is_value_tainted = false;
+        tainttracking::TaintType value_taint_type;
+        if (value->IsString()) {
+          String *string_value = *Handle<String>::cast(value); 
+          value_taint_type = tainttracking::GetTaintStatusRange(string_value, 0, string_value->length());
+          is_value_tainted = value_taint_type != tainttracking::TaintType::UNTAINTED;
+        }
+        else { // if (value->IsHeapObject()) {
+          DCHECK(value->IsHeapObject());
+          is_value_tainted = value->IsPrototypePolluted();
+          // TAINTED in std::cout represents ObjectTaint
+          value_taint_type = tainttracking::TaintType::TAINTED;
+        }
+        
+        if (is_key_tainted && is_value_tainted) {
+          // object, key, value should all be tainted
+          // Log prototype pollution to file
+          int64_t ret;
+          if (value->IsString())
+            ret = tainttracking::LogIfTainted(Handle<String>::cast(value), v8::String::TaintSinkLabel::PROTOTYPE_POLLUTION, 0);
+          else {
+            DCHECK(value->IsHeapObject());
+            // Cannot log HeapObject value, log key instead
+            ret = tainttracking::LogIfTainted(Handle<String>::cast(key), v8::String::TaintSinkLabel::PROTOTYPE_POLLUTION, 0);
+          }
+
+          PrintF("ppFOUND! ObjectAddress ");
+          object->Print();// Failed when using object->address();
+          PrintF(" KeyTaintType %s ValueTaintType ", tainttracking::TaintTypeToString(key_taint_type).c_str());
+          if (value->IsString()) {
+            PrintF("%s", tainttracking::TaintTypeToString(value_taint_type).c_str());
+          }
+          else {
+            DCHECK(value->IsHeapObject());
+            PrintF("ObjectTaint");
+          }
+          PrintF(" MessageId %ld KeyIs ", ret);
+          key->Print();
+	        PrintF(" ValueIs ");
+          value->Print();
+          PrintF("\n"); 
+        }
+      }
+    }
+  // }
+
   MAYBE_RETURN_NULL(Object::SetProperty(&it, value, language_mode,
-                                        Object::MAY_BE_STORE_FROM_KEYED));
+                                      Object::MAY_BE_STORE_FROM_KEYED));
+
   return value;
 }
 
@@ -823,9 +1249,29 @@ RUNTIME_FUNCTION(Runtime_ToObject) {
 
 RUNTIME_FUNCTION(Runtime_ToPrimitive) {
   HandleScope scope(isolate);
-  DCHECK_EQ(1, args.length());
+  int args_length = args.length();
+  DCHECK_LT(0, args_length);
   CONVERT_ARG_HANDLE_CHECKED(Object, input, 0);
-  RETURN_RESULT_OR_FAILURE(isolate, Object::ToPrimitive(input));
+  switch(args_length) {
+    case 1:
+      RETURN_RESULT_OR_FAILURE(isolate, Object::ToPrimitive(input));
+      break;
+
+    case 2: {
+      CONVERT_ARG_HANDLE_CHECKED(Smi, frame_type, 1);
+      RETURN_RESULT_OR_FAILURE(
+          isolate,
+          Object::ToPrimitive(
+              input,
+              ToPrimitiveHint::kDefault,
+              static_cast<tainttracking::FrameType>(frame_type->value())));
+    }
+      break;
+
+    default:
+      UNREACHABLE();
+  }
+  return isolate->heap()->exception();
 }
 
 

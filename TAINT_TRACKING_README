@@ -1,0 +1,469 @@
+Installation
+------------
+
+Currently only supports x64 build.
+
+Follow the directions to download chromium source code here:
+http://www.chromium.org/developers/how-tos/get-the-code. If you have any
+problems during these four steps, you should read the documentation about how
+to get the code. Loosely, the steps are:
+
+    1. Install depot_tools
+
+       git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+       export PATH="$PATH:/path/to/depot_tools"
+
+    2. Fetch chromium
+
+       mkdir chromium
+       cd chromium
+       fetch --nohooks chromium"
+
+    3. [Linux only] You may have to install the build dependencies
+
+       sh src/build/install-build-deps.sh
+
+    4. Run hooks
+
+       cd src
+       gclient --runhooks
+
+
+Then continue following the directions here.
+
+
+You must have Capn' Proto installed and the capnp tool must be in your path.
+https://capnproto.org. Go to the installation section and read the directions
+there.
+
+On osx, previously, I had no problem following the given directions for
+installation.
+
+However, on linux, you may have to do this:
+
+First you have to clone from git. Substitute the following commands in the
+installation for compilation. You need to compile the library with the same
+toolchain that chromium users. Ideally, this would be a BUILD.gn file but I
+haven't done that yet.
+
+If the build fails at the configuration step, check the config.log file. First,
+you will need to apply the patch for supporting stdlib 4.6.3 which does not
+have a version of std::chrono::stead_clock. The patch is found in
+v8/src/taint_tracking/capnp-diff.patch. If you don't use the same tool chain,
+then during linking you will get undefined references during the ninja build.
+These flags come from running the building with the verbose flag in ninja and
+looking at the arguments that are passed to compilation. The sysroot flag may
+need to be changed depending on what system you're on.
+
+
+  # Change this to point to the installation directory
+  export CHROMEDIR="/home/billy/docs/source/chromium_taint_tracking/src";
+
+  export SYSROOT="$CHROMEDIR/build/linux/debian_wheezy_amd64-sysroot"
+  export CXX="$CHROMEDIR/third_party/llvm-build/Release+Asserts/bin/clang++";
+  export CC="$CHROMEDIR/third_party/llvm-build/Release+Asserts/bin/clang"
+
+  # -D_GLIBCXX_USE_CLOCK_REALTIME is required because of a bug in the version
+  # of the libc++ library on linux that ships with chromium:
+  # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53841 If you forget this, you
+  # may get bugs during configure about not supporting the C++11 standard
+  # library
+  export CXXFLAGS="--sysroot=$SYSROOT -O3 -B$CHROMEDIR/third_party/binutils/Linux_x64/Release/bin -std=c++11 -D_GLIBCXX_USE_CLOCK_REALTIME";
+
+  export LDFLAGS="-B$CHROMEDIR/third_party/binutils/Linux_x64/Release/bin"
+
+
+  export LDFLAGS="-L$CHROMEDIR/build/linux/debian_wheezy_amd64-sysroot/lib/x86_64-linux-gnu -Wl,-rpath-link=$CHROMEDIR/build/linux/debian_wheezy_amd64-sysroot/lib/x86_64-linux-gnu -L$CHROMEDIR/build/linux/debian_wheezy_amd64-sysroot/usr/lib/x86_64-linux-gnu -Wl,-rpath-link=$CHROMEDIR/build/linux/debian_wheezy_amd64-sysroot/usr/lib/x86_64-linux-gnu -L$CHROMEDIR/build/linux/debian_wheezy_amd64-sysroot/usr/lib -Wl,-rpath-link=$CHROMEDIR/build/linux/debian_wheezy_amd64-sysroot/usr/lib -Wl,-rpath-link=$CHROMEDIR/out/Debug -B$CHROMEDIR/third_party/binutils/Linux_x64/Release/bin -L$CHROMEDIR/build/linux/debian_wheezy_amd64-sysroot/usr/lib/gcc/x86_64-linux-gnu/4.6 -Wl,-rpath-link=$CHROMEDIR/build/linux/debian_wheezy_amd64-sysroot/usr/lib/gcc/x86_64-linux-gnu/4.6"
+
+  cd c++
+  autoreconf -i
+  # Change this to install where you want. Make sure that you give the same
+  # path to the compilation step below.
+  ./configure --with-sysroot="$SYSROOT" --prefix="/home/billy/projects/capnproto-install-clang"
+  make -j8 check
+  sudo make install
+
+
+On linux, you may also need to install libgcrypt11 manually since it is not in
+the apt sources anymore. I got it from here https://launchpad.net/ubuntu/trusty/amd64/libgcrypt11/1.5.3-2ubuntu4. Download the libgcrypt11[versionstuff].deb file and then run:
+
+  sudo dpkg -I libgcrypt11[versionstuff].deb
+
+
+
+Compiling
+---------
+
+First create an output dir with gn gen <outdir>. On linux, you may also need to
+set the pkg-config path environment variable before this step. If you don't do
+this, it will complain that it requires a specific version of the randrproto
+library.
+
+export PKG_CONFIG_PATH="./build/linux/ubuntu_precise_amd64-sysroot/usr/share/pkgconfig"
+
+If you installed capnp into a directory that is not on your path (you likely
+did this if you used the --prefix) argument, then you need to add the bin
+directory of capnp to your path using this environment variable. If you don't
+do this, you will get an error during the capnp compiling step. You also need
+to set the LD_LIBRARY_PATH during runtime or else you will get an error that it
+cannot find libcapnp[version].so.
+
+# Change this to your directory
+export CAPNP_INSTALL="/home/billy/projects/capnproto-install-clang"
+export PATH="$PATH:$CAPNP_INSTALL/bin"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$CAPNP_INSTALL/lib"
+
+Required build parameters. Set these via "gn args <outdir>"
+
+  v8_interpreted_regexp = true
+
+Suggested build parameters for development:
+
+  is_component_build = true
+
+  # Set this to 0 to disable symbols
+  symbol_level = 1
+  enable_nacl = false
+  remove_webcore_debug_symbols = false
+  is_debug = true
+
+
+You may need to set the capnp location in the arguments as well. This should
+point to a directory which has the capnp library in the lib subdirectory. For
+unix-es, the default install is in "/usr/local" if installed from source. If
+you change this directory via --prefix during configure time, it will be
+different.
+
+  v8_capnp_include_dir = "/home/billy/projects/capnproto-install-clang"
+
+
+Then run the build command:
+
+ninja -C out/Debug <buildtarget>
+
+e.g:
+ninja -C out/Debug chrome
+
+
+
+Checking out code
+-----------------
+
+You must also make sure that chromium and all its libraries are built with the
+same version as the v8 code checkout. There is a list of checkout commits for
+the current version. Then, you may need to run the hooks after doing this:
+
+cd <root>;
+gclient --runhooks
+
+
+I had trouble with some version being not updated regularly. Here is a list of
+checkout version numbers from a good checkout around Aug 6. Call it from the
+src directory:
+
+
+cd ./chrome/test/data/perf/frame_rate/content
+git checkout c10272c88463efeef6bb19c9ec07c42bc8fe22b9
+cd -
+cd ./chrome/test/data/perf/canvas_bench
+git checkout a7b40ea5ae0239517d78845a5fc9b12976bfc732
+cd -
+cd ./third_party/openh264/src
+git checkout b37cda248234162033e3e11b0335f3131cdfe488
+cd -
+cd ./third_party/flac
+git checkout 812243a85937e06102ba312c6caf8823e243b35b
+cd -
+cd ./third_party/catapult
+git checkout f09349b28951996a459ef05069110cadcddce01e
+cd -
+cd ./third_party/angle
+git checkout 9c721c64170b6698bbc68b407d780d25b2f7133c
+cd -
+cd ./third_party/scons-2.0.1
+git checkout 1c1550e17fc26355d08627fbdec13d8291227067
+cd -
+cd ./third_party/leveldatabase/src
+git checkout a7bff697baa062c8f6b8fb760eacf658712b611a
+cd -
+cd ./third_party/libwebm/source
+git checkout 9a235e0bc94319c5f7184bd69cbe5468a74a025c
+cd -
+cd ./third_party/jsoncpp/source
+git checkout f572e8e42e22cfcf5ab0aea26574f408943edfa4
+cd -
+cd ./third_party/libsrtp
+git checkout 48bdd208dcdbb018c4a154cf260414dbdfabb86d
+cd -
+cd ./third_party/sfntly/src
+git checkout 468cad540fa1b0027cad60456f53feabecdce2bc
+cd -
+cd ./third_party/cld_2/src
+git checkout 84b58a5d7690ebf05a91406f371ce00c3daf31c0
+cd -
+cd ./third_party/yasm/source/patched-yasm
+git checkout 7da28c6c7c6a1387217352ce02b31754deb54d2a
+cd -
+cd ./third_party/SPIRV-Tools/src
+git checkout 9166854ac93ef81b026e943ccd230fed6c8b8d3c
+cd -
+cd ./third_party/skia
+git checkout 4c1abdcd21d65bb34a6b4aea969ef4485e117e67
+cd -
+cd ./third_party/ced/src
+git checkout 9012c0ab648025dd0f8df14294bf5d6d73793ac9
+cd -
+cd ./third_party/hunspell_dictionaries
+git checkout dc6e7c25bf47cbfb466e0701fd2728b4a12e79d5
+cd -
+cd ./third_party/pywebsocket/src
+git checkout 2d7b73c3acbd0f41dcab487ae5c97c6feae06ce2
+cd -
+cd ./third_party/re2/src
+git checkout dba3349aba83b5588e85e5ecf2b56c97f2d259b7
+cd -
+cd ./third_party/libaddressinput/src
+git checkout 5eeeb797e79fa01503fcdcbebdc50036fac023ef
+cd -
+cd ./third_party/webrtc
+git checkout 1462743480dd6979ff8fbcd3372f7bc3c197f9b4
+cd -
+cd ./third_party/libjpeg_turbo
+git checkout 7260e4d8b8e1e40b17f03fafdf1cd83296900f76
+cd -
+cd ./third_party/boringssl/src
+git checkout 0d1b0961f9b8ef720cd96ae0a7ac3edcbbf538e5
+cd -
+cd ./third_party/openmax_dl
+git checkout 57d33bee7823e76393692f8d58e0478d6b79d153
+cd -
+cd ./third_party/icu
+git checkout ef5c735307d0f86c7622f69620994c9468beba99
+cd -
+cd ./third_party/shaderc/src
+git checkout cd8793c34907073025af2622c28bcee64e9879a4
+cd -
+cd ./third_party/bidichecker
+git checkout 97f2aa645b74c28c57eca56992235c79850fa9e0
+cd -
+cd ./third_party/swiftshader
+git checkout e808a5fe790ae8458fc69f4c3fa7a3b77fd10047
+cd -
+cd ./third_party/colorama/src
+git checkout 799604a1041e9b3bc5d2789ecbd7e8db2e18e6b8
+cd -
+cd ./third_party/glslang/src
+git checkout 210c6bf4d8119dc5f8ac21da2d4c87184f7015e0
+cd -
+cd ./third_party/pdfium
+git checkout 135b99861d0d898850754a845f607ec48f0bcccc
+cd -
+cd ./third_party/py_trace_event/src
+git checkout dd463ea9e2c430de2b9e53dea57a77b4c3ac9b30
+cd -
+cd ./third_party/pyftpdlib/src
+git checkout 2be6d65e31c7ee6320d059f581f05ae8d89d7e45
+cd -
+cd ./third_party/libFuzzer/src
+git checkout 3ae6b1d1102488f26d25d045fd82208ce00a8c66
+cd -
+cd ./third_party/cld_3/src
+git checkout 94b690d6c2019d6a99a105c5c60c4b185660bd89
+cd -
+cd ./third_party/visualmetrics/src
+git checkout 1edde9d2fe203229c895b648fdec355917200ad6
+cd -
+cd ./third_party/flatbuffers/src
+git checkout e92ae5199d52fd59540a800bec7eef46cd778257
+cd -
+cd ./third_party/webdriver/pylib
+git checkout 5fd78261a75fe08d27ca4835fb6c5ce4b42275bd
+cd -
+cd ./third_party/usrsctp/usrsctplib
+git checkout 9a3e5465e9d96d8a7f78f1e996412d6235d7a359
+cd -
+cd ./third_party/libyuv
+git checkout 68786ccd538471a7fb041bcf110792655618b4a2
+cd -
+cd ./third_party/snappy/src
+git checkout 762bb32f0c9d2f31ba4958c7c0933d22e80c20bf
+cd -
+cd ./third_party/webgl/src
+git checkout b57946dc8d26325c332f3644c646dcc795c68bdc
+cd -
+cd ./third_party/libvpx/source/libvpx
+git checkout 82070ae9393b1e79559d81fcf1aa89c2e4aa58ee
+cd -
+cd ./third_party/libphonenumber/dist
+git checkout a4da30df63a097d67e3c429ead6790ad91d36cf4
+cd -
+cd ./third_party/mesa/src
+git checkout ef811c6bd4de74e13e7035ca882cc77f85793fef
+cd -
+cd ./third_party/dom_distiller_js/dist
+git checkout f092aa790a0eb66135fa26d98a5f118997ed446d
+cd -
+cd ./third_party/ffmpeg
+git checkout 4e878f7f64d7a9f06ba076d0a2611d7f8b33d793
+cd -
+cd ./third_party/webpagereplay
+git checkout 3cd3a3f6f06a1b87b14b9162c7eb16d23d141241
+cd -
+cd ./third_party/smhasher/src
+git checkout e87738e57558e0ec472b2fc3a643b838e5b6e88f
+cd -
+cd ./tools/gyp
+git checkout e7079f0e0e14108ab0dba58728ff219637458563
+cd -
+cd ./tools/swarming_client
+git checkout e4288c3040a32f2e7ad92f957668f2ee3d36e5a6
+cd -
+cd ./tools/page_cycler/acid3
+git checkout 6be0a66a1ebd7ebc5abc1b2f405a945f6d871521
+cd -
+cd ./sdch/open-vcdiff
+git checkout 21d7d0b9c3d0c3ccbdb221c85ae889373f0a2a58
+cd -
+cd ./buildtools/third_party/libc++/trunk
+git checkout b1ece9c037d879843b0b0f5a2802e1e9d443b75a
+cd -
+cd ./buildtools/third_party/libc++abi/trunk
+git checkout 0edb61e2e581758fc4cd4cd09fc588b3fc91a653
+cd -
+cd ./buildtools
+git checkout e4aa960cb9cd2c7dbaa69655efa85b3d7dff13dd
+cd -
+cd ./buildtools/clang_format/script
+git checkout a72164df8be7d1c68ae1ad6c3541e7819200327e
+cd -
+cd .
+git checkout e808a5fe790ae8458fc69f4c3fa7a3b77fd10047
+cd -
+cd ./testing/gtest
+git checkout 6f8a66431cb592dad629028a50b3dd418a408c87
+cd -
+cd ./testing/gmock
+git checkout 0421b6f358139f02e102c9c332ce19a33faf75be
+cd -
+cd ./native_client
+git checkout 5e296cb4749c3b48653eb6e5888947ad4aa86d3a
+cd -
+cd ./breakpad/src
+git checkout 51db53eec7293a35cb6fc10bd2e333f22dd9d201
+cd -
+cd ./media/cdm/api
+git checkout 245af7782c9f54d776722a2c7b53372ee040e5fc
+cd -
+
+
+
+Running Tests
+-------------
+
+Run from the root directory:
+
+v8/tools/run-tests.py --mode=debug --arch=x64 cctest/test-taint-tracking/\* --shell-dir=$(pwd)/out/Debug
+
+
+
+Common issues
+-------------
+
+Sometimes if you change portions of the taint tracking code and then recompile,
+things don't work because of deserialization issues with previously JIT-ed
+code. Recommend performing a clean build if you run into issues.
+
+  ninja -C out/Debug -t clean
+
+Also, it will help to remove the cache directories and user data directories
+for chromium. On linux they are typically in ~/.cache/chromium and
+~/.config/chromium.
+
+
+
+Running
+-------
+
+To pass command line arguments to the v8 process, you must call the chrome
+executable with the --js-flags="<v8 arguments>" flag. The
+v8/src/flag-definitions.h file has up to date arguments. The executable is in
+the out/Debug or out/Release directory. You must have the LD_LIBRARY_PATH
+environment variable still defined, otherwise it will complain that it cannot
+find libcapnp.
+
+
+
+Flags:
+
+--taint_log_file : A prefix for log files to be sent to. For example
+  /home/billy/log_file will write to files with this format
+  /home/billy/log_file_[current process id]_[current time millis]_[isolate
+  counter]. It does a best effort way of making sure there are not other files
+  there, but it may overwrite anything with the same prefix.
+
+--taint_tracking_enable_symbolic : Enable logging the symbolic values of
+  strings. This will not output symbolic values of control flow, just the
+  makeup of strings.
+
+--taint_tracking_enable_export_ast : Enable exporting the AST to the log. This
+  is required for --taint_tracking_enable_ast_modification.
+
+--taint_tracking_enable_source_export : Enable exporting source code along with
+  the parsed AST. Requires --taint_tracking_enable_export_ast.
+
+--taint_tracking_enable_ast_modification : Enable modifying the AST to insert
+  runtime checks during runtime at each AST node. This is required for concolic
+  execution. Requires --taint_tracking_enable_export_ast.
+
+--taint_tracking_enable_concolic : Enable concolic execution. Requires the
+  --js-flags of --no-crankshaft --no-turbo and --no-ignition be specified.
+
+--taint_tracking_enable_message_origin_check : Enable checking which
+  cross-origin messages have checked the origin using the == or != and strict
+  operator variants.
+
+
+Examples:
+
+LD_LIBRARY_PATH="/home/billy/projects/capnproto-install-clang/lib" out/Debug/chrome --js-flags="--taint_log_file=/home/billy/logfile_prefix" --no-sandbox --renderer-cmd-prefix='xterm -title renderer -e gdb -ex run --args'
+
+
+out/Debug/chrome --js-flags="--taint_log_file=/home/billy/test_google_v12 --taint_tracking_enable_export_ast --taint_tracking_enable_concolic --no-crankshaft --no-turbo --no-ignition" --no-sandbox --disable-hang-monitor
+
+
+Useful other arguments for chrome:
+
+--no-sandbox: may be required to write files from --taint_log_file on linux.
+
+--disable-hang-monitor: useful to stop the pesky kill tab dialogs
+
+--renderer-cmd-prefix: useful to debug renderer processes like:
+  --renderer-cmd-prefix='xterm -title renderer -e gdb -ex run --args'
+
+  or
+
+  --renderer-cmd-prefix='gnome-terminal --disable-factory -x gdb -ex run --args'
+
+--renderer-startup-dialog: allows you to connect to processes using gdb or lldb
+  after creation. It will print the process id of the renderer process and
+  pause it until a debugger connects.
+
+
+
+Debugging
+---------
+
+Chromium documentation about debugging on linux:
+
+https://chromium.googlesource.com/chromium/src/+/master/docs/linux_debugging.md#GDB
+
+Useful command for debugging the renderer process in gdb. Its hard to catch the
+renderer process because chrome spawns them off in separate processes. Here is
+a command to start up a new xterm with the gdb process for the spawned
+processes.
+
+It can be hard to debug memory error in the taint tracking system because its
+difficult to localize where a memory error was introduced. With a debug build,
+you can use the --taint_tracking_enable_export_ast and
+--taint_tracking_enable_modify_ast to get more information about when an error
+was introduced.

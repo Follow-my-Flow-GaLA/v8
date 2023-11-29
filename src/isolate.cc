@@ -41,6 +41,8 @@
 #include "src/vm-state-inl.h"
 #include "src/wasm/wasm-module.h"
 
+#include "src/taint_tracking-inl.h"
+
 namespace v8 {
 namespace internal {
 
@@ -851,6 +853,37 @@ void Isolate::PrintStack(FILE* out, PrintStackMode mode) {
 }
 
 
+// Add by Inactive
+bool Isolate::ConcisePrint(StringStream* accumulator) {
+  if (stack_trace_nesting_level_ == 0) {
+    stack_trace_nesting_level_++;
+    StringStream::ClearMentionedObjectCache(this);
+    // HeapStringAllocator allocator;
+    // StringStream accumulator(&allocator);
+    incomplete_message_ = accumulator;
+    bool should_output = DoConcisePrint(accumulator);
+    // if (should_output) accumulator.OutputToFile(out);
+    InitializeLoggingAndCounters();
+    accumulator->Log(this);
+    incomplete_message_ = NULL;
+    stack_trace_nesting_level_ = 0;
+    return should_output;
+  } else if (stack_trace_nesting_level_ == 1) {
+    stack_trace_nesting_level_++;
+    base::OS::PrintError(
+      "\n\nAttempt to print stack while printing stack (double fault)\n");
+    base::OS::PrintError(
+      "If you are lucky you may find a partial stack dump on stdout.\n\n");
+    accumulator = incomplete_message_;
+    return true;
+  } else {
+    base::OS::Abort();
+    // Unreachable
+    return false;
+  }
+}
+
+
 static void PrintFrames(Isolate* isolate,
                         StringStream* accumulator,
                         StackFrame::PrintMode mode) {
@@ -870,16 +903,113 @@ void Isolate::PrintStack(StringStream* accumulator, PrintStackMode mode) {
   // Avoid printing anything if there are no frames.
   if (c_entry_fp(thread_local_top()) == 0) return;
 
-  accumulator->Add(
-      "\n==== JS stack trace =========================================\n\n");
-  PrintFrames(this, accumulator, StackFrame::OVERVIEW);
   if (mode == kPrintStackVerbose) {
+    accumulator->Add(
+        "\n==== JS stack trace =========================================\n\n");
+    PrintFrames(this, accumulator, StackFrame::OVERVIEW);
     accumulator->Add(
         "\n==== Details ================================================\n\n");
     PrintFrames(this, accumulator, StackFrame::DETAILS);
     accumulator->PrintMentionedObjectCache(this);
+    accumulator->Add("=====================\n\n");
   }
-  accumulator->Add("=====================\n\n");
+  else { // PrintStackMode::kPrintStackConcise
+    // Add by Inactive
+    DoConcisePrint(accumulator); 
+    accumulator->Add("======\n");
+  }
+}
+
+
+// Add by Inactive
+bool Isolate::DoConcisePrint(StringStream* accumulator) {
+  // The MentionedObjectCache is not GC-proof at the moment.
+  DisallowHeapAllocation no_gc;
+  HandleScope scope(this);
+  DCHECK(accumulator->IsMentionedObjectCacheClear(this));
+
+  // Avoid printing anything if there are no frames.
+  if (c_entry_fp(thread_local_top()) == 0) return false;
+
+  StackFrameIterator it(this);
+  // Only print top JS frame info
+  bool has_js_frame = false;
+  bool should_print = false;
+  accumulator->Add(
+    "\n=== JS Info ===\n");
+  while (!it.done()) {
+    if (it.frame()->is_java_script()) {
+      JavaScriptFrame* jsFrame = static_cast<JavaScriptFrame*>(it.frame());
+      if (!jsFrame->function()->IsJSFunction()) {
+        accumulator->Add("Skip Non-JSFunction;");
+        it.Advance();
+        continue;
+      }
+      Object* script = jsFrame->function()->shared()->script();
+      // Don't show functions from native scripts to user.
+      if (script->IsScript() &&
+              Script::TYPE_NATIVE != Script::cast(script)->type()) {
+                accumulator->Put('\n');
+                should_print = jsFrame->DoConcisePrintFrame(accumulator, StackFrame::OVERVIEW);
+                has_js_frame = true;
+                break;
+              }
+      else {
+        accumulator->Add("Skip native-code;");
+        it.Advance();
+        continue;
+      }
+    }
+    accumulator->Add("Skip Non-JS;");
+    it.Advance();
+  }
+  return has_js_frame && should_print;
+}
+
+
+bool Isolate::DoGetScriptInfo(StringStream* source_code_accumulator,
+                    StringStream* line_number_accumulator) {
+  // The MentionedObjectCache is not GC-proof at the moment.
+  DisallowHeapAllocation no_gc;
+  HandleScope scope(this);
+  DCHECK(source_code_accumulator->IsMentionedObjectCacheClear(this));
+  DCHECK(line_number_accumulator->IsMentionedObjectCacheClear(this));
+
+  // Avoid printing anything if there are no frames.
+  if (c_entry_fp(thread_local_top()) == 0) return false;
+
+  StackFrameIterator it(this);
+  // Only print top JS frame info
+  bool has_js_frame = false;
+  // accumulator->Add(
+  //   "\n=== JS Info ===\n");
+  while (!it.done()) {
+    if (it.frame()->is_java_script()) {
+      JavaScriptFrame* jsFrame = static_cast<JavaScriptFrame*>(it.frame());
+      if (!jsFrame->function()->IsJSFunction()) {
+        // accumulator->Add("Skip Non-JSFunction;");
+        it.Advance();
+        continue;
+      }
+      Object* script = jsFrame->function()->shared()->script();
+      // Don't show functions from native scripts to user.
+      if (script->IsScript() &&
+              Script::TYPE_NATIVE != Script::cast(script)->type()) {
+                // accumulator->Put('\n');
+                jsFrame->GetScriptInfo(source_code_accumulator, line_number_accumulator);
+                has_js_frame = true;
+                break;
+              }
+      else {
+        // accumulator->Add("Skip native-code;");
+        it.Advance();
+        continue;
+      }
+    }
+    // accumulator->Add("Skip Non-JS;");
+    it.Advance();
+  }
+  return has_js_frame;
 }
 
 
@@ -1042,6 +1172,18 @@ void Isolate::InvokeApiInterruptCallbacks() {
 void ReportBootstrappingException(Handle<Object> exception,
                                   MessageLocation* location) {
   base::OS::PrintError("Exception thrown during bootstrapping\n");
+
+
+  exception->Print(std::cerr);
+
+  char stack_trace [4000];
+    FixedStringAllocator alloc(stack_trace, sizeof(stack_trace));
+    StringStream stream(
+        &alloc, StringStream::ObjectPrintMode::kPrintObjectConcise);
+    Handle<HeapObject>::cast(exception)->GetIsolate()->PrintStack(&stream);
+
+    std::cerr  << stack_trace << std::endl;
+
   if (location == NULL || location->script().is_null()) return;
   // We are bootstrapping and caught an error where the location is set
   // and we have a script for the location.
@@ -1118,6 +1260,7 @@ Object* Isolate::Throw(Object* exception, MessageLocation* location) {
   // Notify debugger of exception.
   if (is_catchable_by_javascript(exception)) {
     debug()->OnThrow(exception_handle);
+    tainttracking::RuntimeOnThrow(this, exception_handle, false);
   }
 
   // Generate the message if required.
@@ -2016,7 +2159,9 @@ Isolate::Isolate(bool enable_serializer)
       use_counter_callback_(NULL),
       basic_block_profiler_(NULL),
       cancelable_task_manager_(new CancelableTaskManager()),
-      abort_on_uncaught_exception_callback_(NULL) {
+      abort_on_uncaught_exception_callback_(NULL),
+      taint_tracking_data_(
+          tainttracking::TaintTracker::New(enable_serializer, this)) {
   {
     base::LockGuard<base::Mutex> lock_guard(thread_data_table_mutex_.Pointer());
     CHECK(thread_data_table_);
@@ -2146,6 +2291,9 @@ void Isolate::Deinit() {
 
   delete heap_profiler_;
   heap_profiler_ = NULL;
+
+  tainttracking::LogDispose(this);
+  taint_tracking_data_.reset();
 
   heap_.TearDown();
   logger_->TearDown();
@@ -2498,6 +2646,10 @@ bool Isolate::Init(Deserializer* des) {
   initialized_from_snapshot_ = (des != NULL);
 
   if (!FLAG_inline_new) heap_.DisableInlineAllocation();
+
+  if (!serializer_enabled()) {
+    taint_tracking_data_->Initialize(this);
+  }
 
   return true;
 }
@@ -3170,6 +3322,10 @@ void Isolate::SetRAILMode(RAILMode rail_mode) {
   if (FLAG_trace_rail) {
     PrintIsolate(this, "RAIL mode: %s\n", RAILModeName(rail_mode));
   }
+}
+
+tainttracking::TaintTracker* Isolate::taint_tracking_data() {
+  return taint_tracking_data_.get();
 }
 
 bool StackLimitCheck::JsHasOverflowed(uintptr_t gap) const {

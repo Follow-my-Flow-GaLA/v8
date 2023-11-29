@@ -848,6 +848,12 @@ class JavaScriptFrame : public StandardFrame {
   void Print(StringStream* accumulator, PrintMode mode,
              int index) const override;
 
+  // Add by Inactive
+  bool DoConcisePrintFrame(StringStream* accumulator,
+                            PrintMode mode) const;
+  void GetScriptInfo(StringStream* source_code_accumulator,
+                            StringStream* line_number_accumulator) const;
+
   // Determine the code for the frame.
   Code* unchecked_code() const override;
 

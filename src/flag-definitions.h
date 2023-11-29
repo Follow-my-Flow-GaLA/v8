@@ -258,6 +258,69 @@ HARMONY_STAGED(FLAG_STAGED_FEATURES)
 HARMONY_SHIPPING(FLAG_SHIPPING_FEATURES)
 #undef FLAG_SHIPPING_FEATURES
 
+
+DEFINE_STRING(taint_log_file, "",
+              "Output taint log information to this file. ")
+DEFINE_STRING(taint_tracking_job_id, "NO_JOB_ID",
+              "Job identifier. Opaque identifier for identifying output. ")
+DEFINE_INT(taint_tracking_heart_beat_millis, 5000,
+           "Number of milliseconds to write a heart beat to the log")
+DEFINE_BOOL(taint_tracking_enable_header_logging, false,
+            "Enable logging of HTTP headers. ")
+DEFINE_BOOL(taint_tracking_enable_page_logging, false,
+            "Enable logging MHTML bodies of pages. ")
+DEFINE_BOOL(taint_tracking_enable_symbolic, false,
+            "Enable symbolic logging. ")
+DEFINE_BOOL(taint_tracking_enable_ast_modification, false,
+            "Enable logging control flow branches. ")
+DEFINE_BOOL(taint_tracking_enable_export_ast, false,
+            "Enable exporting the AST after parsing. ")
+DEFINE_BOOL(taint_tracking_enable_concolic, false,
+            "Enable concolic execution. ")
+DEFINE_BOOL(taint_tracking_enable_concolic_hooks_only, false,
+            "Disable the actual concolic execution, but still leave hooks in for performance testing")
+DEFINE_BOOL(taint_tracking_enable_concolic_no_marshalling, false,
+            "Disable marshalling objects to disk for performance testing")
+DEFINE_BOOL(taint_tracking_enable_source_export, false,
+            "Enable exporting the source code with AST. ")
+DEFINE_BOOL(taint_tracking_enable_source_hash_export, false,
+            "Enable exporting the hash of the source code with AST. ")
+DEFINE_BOOL(taint_tracking_enable_message_origin_check, false,
+            "Enable tracking which cross-origin messages have checked "
+            "origins. ")
+DEFINE_BOOL(taint_tracking_log_remote_scripts_once, false,
+            "Reduce log size by stripping out native scripts and repeated scripts.")
+// Add by client-pp
+DEFINE_BOOL(taint_flow_path_enable_cout, false,
+            "Enable cout logging of taint flow path. ")
+DEFINE_BOOL(logical_key_enable_cout, false,
+            "Enable cout logging of logical keys for pp consequences. ")
+DEFINE_BOOL(prototype_pollution_enable_cout, false,
+            "Enable cout logging for prototype pollution detection. ")
+// Add by Inactive
+DEFINE_BOOL(inactive_conseq_log_enable, false,
+            "Enable detection of inactive consequences of pp, i.e. phase1. ")
+DEFINE_BOOL(inactive_taint_enable, false,
+            "Enable taint tracking of inactive consequences of pp, i.e. phase2. ")
+DEFINE_BOOL(phase3_enable, false,
+            "Enable both detection and taint tracking of inactive consequences of pp, i.e. phase3. ")
+DEFINE_STRING(undef_prop_dataset_file, nullptr,
+            "File path of undef_prop_dataset (json file). ")
+DEFINE_STRING(name_should_exclude, "extensions::",
+            "Names that should be excluded from log_file, e.g., extensions::. ")
+DEFINE_IMPLICATION(undef_prop_dataset_file, inactive_taint_enable)
+
+DEFINE_IMPLICATION(
+    taint_tracking_enable_concolic, taint_tracking_enable_ast_modification)
+DEFINE_IMPLICATION(
+    taint_tracking_enable_source_export, taint_tracking_enable_export_ast)
+
+#ifdef DEBUG
+DEFINE_BOOL(taint_tracking_trace_concolic, false,
+            "Trace concolic execution for debug purposes and print to stderr. ")
+#endif
+
+
 // Flags for experimental implementation features.
 DEFINE_BOOL(compiled_keyed_generic_loads, false,
             "use optimizing compiler to generate keyed generic load stubs")
@@ -294,7 +357,7 @@ DEFINE_BOOL(unbox_double_arrays, true, "automatically unbox arrays of doubles")
 DEFINE_BOOL(string_slices, true, "use string slices")
 
 // Flags for Ignition.
-DEFINE_BOOL(ignition, false, "use ignition interpreter")
+DEFINE_BOOL(ignition, true, "use ignition interpreter")
 DEFINE_BOOL(ignition_staging, false, "use ignition with all staged features")
 DEFINE_IMPLICATION(ignition_staging, ignition)
 DEFINE_IMPLICATION(ignition_staging, ignition_osr)
@@ -671,7 +734,7 @@ DEFINE_INT(stack_size, V8_DEFAULT_STACK_SIZE_KB,
            "default size of stack region v8 is allowed to use (in kBytes)")
 
 // frames.cc
-DEFINE_INT(max_stack_trace_source_length, 300,
+DEFINE_INT(max_stack_trace_source_length, 50000,
            "maximum length of function source code printed in a stack trace.")
 
 // full-codegen.cc
@@ -1151,6 +1214,7 @@ DEFINE_IMPLICATION(print_all_code, code_comments)
 DEFINE_IMPLICATION(print_all_code, trace_codegen)
 #endif
 #endif
+
 
 
 //

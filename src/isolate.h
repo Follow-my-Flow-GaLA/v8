@@ -32,6 +32,8 @@
 #include "src/runtime/runtime.h"
 #include "src/zone.h"
 
+#include "src/taint_tracking.h"
+
 namespace v8 {
 
 namespace base {
@@ -701,6 +703,13 @@ class Isolate {
   void PrintStack(StringStream* accumulator,
                   PrintStackMode mode = kPrintStackVerbose);
   void PrintStack(FILE* out, PrintStackMode mode = kPrintStackVerbose);
+
+  // Add by Inactive
+  bool ConcisePrint(StringStream* accumulator);
+  bool DoConcisePrint(StringStream* accumulator);
+  bool DoGetScriptInfo(StringStream* source_code_accumulator,
+                          StringStream* line_number_accumulator);
+
   Handle<String> StackTraceString();
   NO_INLINE(void PushStackTraceAndDie(unsigned int magic, void* ptr1,
                                       void* ptr2, unsigned int magic2));
@@ -1158,6 +1167,8 @@ class Isolate {
 
   void SetRAILMode(RAILMode rail_mode);
 
+  tainttracking::TaintTracker* taint_tracking_data();
+
  protected:
   explicit Isolate(bool enable_serializer);
   bool IsArrayOrObjectPrototype(Object* object);
@@ -1430,6 +1441,8 @@ class Isolate {
 
   v8::Isolate::AbortOnUncaughtExceptionCallback
       abort_on_uncaught_exception_callback_;
+
+  std::unique_ptr<tainttracking::TaintTracker> taint_tracking_data_;
 
   friend class ExecutionAccess;
   friend class HandleScopeImplementer;

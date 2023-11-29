@@ -1,0 +1,18 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Compile with clang++",
+            "type": "shell",
+            "command": "/media/data1/zfk/Documents/sanchecker/src/third_party/llvm-build/Release+Asserts/bin/clang++",
+            "args": [
+                "-std=c++11",
+                "-g",
+                "-o",
+                "${workspaceFolder}/mytests/test-code-regex-extractor",
+                "${file}"
+            ],
+            "group": "build"
+        }
+    ]
+}

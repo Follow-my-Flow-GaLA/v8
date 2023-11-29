@@ -25,6 +25,7 @@
 #include "src/runtime/runtime-utils.h"
 #include "src/runtime/runtime.h"
 #include "src/tracing/trace-event.h"
+#include <iostream>
 
 namespace v8 {
 namespace internal {
@@ -635,6 +636,7 @@ MaybeHandle<Object> LoadIC::Load(Handle<Object> object, Handle<Name> name) {
       return result;
     }
   }
+  
   return ReferenceError(name);
 }
 
@@ -1505,6 +1507,37 @@ bool StoreIC::LookupForWrite(LookupIterator* it, Handle<Object> value,
 MaybeHandle<Object> StoreIC::Store(Handle<Object> object, Handle<Name> name,
                                    Handle<Object> value,
                                    JSReceiver::StoreFromKeyed store_mode) {
+  
+  // Handle<String> source = Handle<String>::cast(value);
+  // v8::internal::String *source = v8::internal::String::cast(value);
+  // v8::String::TaintType stype = tainttracking::GetTaintStatusRange(source, 0, source->length());
+  // if (stype != v8::String::TaintType::UNTAINTED) {
+  //   std::cout << "Objlookup " << stype <<"|";
+  //   source->Print();
+  //   std::cout << std::endl;
+  // }
+  // Added by zfk
+  // if (value->IsString() && name->IsString()) {
+  //   Handle<String> str_name = Handle<String>::cast(name);
+  //   if (String::cast(*str_name)) {
+  //     String *source = String::cast(*str_name);
+  //     std::cout << "Str_name is ";
+  //     source->Print();
+  //     Handle<String> str_value = Handle<String>::cast(value);
+  //     String *val = String::cast(*str_value);
+  //     std::cout << "Str_value is ";
+  //     val->Print();
+  //     std::cout << std::endl;
+
+  //     v8::String::TaintType stype = tainttracking::GetTaintStatusRange(source, 0, source->length());
+  //     if (stype != v8::String::TaintType::UNTAINTED) {
+  //       Handle<String> str_value = Handle<String>::cast(value);
+  //       int64_t ret = tainttracking::LogIfTainted(Handle<String>::cast(str_value), tainttracking::TaintSinkLabel::JAVASCRIPT, 0);
+  //       std::cout << "LogIfTainted return value " << ret << std::endl;
+  //     }
+  //   }
+  // }
+  
   if (object->IsJSGlobalObject() && name->IsString()) {
     // Look up in script context table.
     Handle<String> str_name = Handle<String>::cast(name);

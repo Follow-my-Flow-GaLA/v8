@@ -323,6 +323,31 @@ bool StringStream::Put(String* str, int start, int end) {
 }
 
 
+// Add by Inactive
+bool StringStream::ShouldPrintName(Object* name, const std::string& sub_str) {
+  if (name->IsString()) {
+    String* name_str = String::cast(name);
+    std::string cppString(name_str->ToCString().get());
+    return cppString.find(sub_str) == std::string::npos;
+  }
+  else {
+    return true;
+  }
+}
+
+
+bool StringStream::ShouldPrintName(Handle<Name> name, const std::string& sub_str) {
+  if (name->IsString()) {
+    String* name_str = *Handle<String>::cast(name);
+    std::string cppString(name_str->ToCString().get());
+    return cppString.find(sub_str) == std::string::npos;
+  }
+  else {
+    return true;
+  }
+}
+
+
 void StringStream::PrintName(Object* name) {
   if (name->IsString()) {
     String* str = String::cast(name);

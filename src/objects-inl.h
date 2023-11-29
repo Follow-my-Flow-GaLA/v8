@@ -31,6 +31,7 @@
 #include "src/objects.h"
 #include "src/property.h"
 #include "src/prototype.h"
+#include "src/string-stream.h"
 #include "src/transitions-inl.h"
 #include "src/type-feedback-vector-inl.h"
 #include "src/v8memory.h"
@@ -930,6 +931,11 @@ bool Object::IsPrimitive() const {
   return IsSmi() || HeapObject::cast(this)->map()->IsPrimitiveMap();
 }
 
+// Modified by zfk
+void Object::SetIsPrototypePolluted() const { HeapObject::cast(this)->map()->set_is_prototype_polluted(); }
+
+bool Object::IsPrototypePolluted() const { return HeapObject::cast(this)->map()->is_prototype_polluted(); }
+
 bool HeapObject::IsJSGlobalProxy() const {
   bool result = map()->instance_type() == JS_GLOBAL_PROXY_TYPE;
   DCHECK(!result || map()->is_access_check_needed());
@@ -1061,9 +1067,11 @@ MaybeHandle<Name> Object::ToName(Isolate* isolate, Handle<Object> input) {
 
 // static
 MaybeHandle<Object> Object::ToPrimitive(Handle<Object> input,
-                                        ToPrimitiveHint hint) {
+                                        ToPrimitiveHint hint,
+                                        tainttracking::FrameType frame_type) {
   if (input->IsPrimitive()) return input;
-  return JSReceiver::ToPrimitive(Handle<JSReceiver>::cast(input), hint);
+  return JSReceiver::ToPrimitive(
+      Handle<JSReceiver>::cast(input), hint, frame_type);
 }
 
 
@@ -1074,21 +1082,60 @@ bool Object::HasSpecificClassOf(String* name) {
 MaybeHandle<Object> Object::GetProperty(Handle<Object> object,
                                         Handle<Name> name) {
   LookupIterator it(object, name);
-  if (!it.IsFound()) return it.factory()->undefined_value();
+  if (!it.IsFound()) {
+    // Add by Inactive
+    if (FLAG_inactive_conseq_log_enable) {
+      v8::internal::HeapStringAllocator allocator;
+      v8::internal::StringStream accumulator(&allocator);
+      accumulator.Add("OGP KeyIs ");
+      it.GetName()->ShortPrint(&accumulator);
+      if (it.isolate()->ConcisePrint(&accumulator)) {
+        accumulator.Add(" OGPEnd\n");
+        accumulator.OutputToFile(stdout);
+      }
+    }
+    return it.factory()->undefined_value();
+  }
   return GetProperty(&it);
 }
 
 MaybeHandle<Object> JSReceiver::GetProperty(Handle<JSReceiver> receiver,
                                             Handle<Name> name) {
   LookupIterator it(receiver, name, receiver);
-  if (!it.IsFound()) return it.factory()->undefined_value();
+  if (!it.IsFound()) {
+    // Add by Inactive
+    if (FLAG_inactive_conseq_log_enable) {
+      v8::internal::HeapStringAllocator allocator;
+      v8::internal::StringStream accumulator(&allocator);
+      accumulator.Add("JRGP KeyIs ");
+      it.GetName()->ShortPrint(&accumulator);
+      if (it.isolate()->ConcisePrint(&accumulator)) {
+        accumulator.Add(" JRGPEnd\n");
+        accumulator.OutputToFile(stdout);
+      }
+    }
+    return it.factory()->undefined_value();
+  }
   return Object::GetProperty(&it);
 }
 
 MaybeHandle<Object> Object::GetElement(Isolate* isolate, Handle<Object> object,
                                        uint32_t index) {
   LookupIterator it(isolate, object, index);
-  if (!it.IsFound()) return it.factory()->undefined_value();
+  if (!it.IsFound()) {
+    // Add by Inactive
+    if (FLAG_inactive_conseq_log_enable) {
+      v8::internal::HeapStringAllocator allocator;
+      v8::internal::StringStream accumulator(&allocator);
+      accumulator.Add("OGE KeyIs ");
+      it.GetName()->ShortPrint(&accumulator);
+      if (it.isolate()->ConcisePrint(&accumulator)) {
+        accumulator.Add(" OGEEnd\n");
+        accumulator.OutputToFile(stdout);
+      }
+    }
+    return it.factory()->undefined_value();
+  }
   return GetProperty(&it);
 }
 
@@ -1096,7 +1143,20 @@ MaybeHandle<Object> JSReceiver::GetElement(Isolate* isolate,
                                            Handle<JSReceiver> receiver,
                                            uint32_t index) {
   LookupIterator it(isolate, receiver, index, receiver);
-  if (!it.IsFound()) return it.factory()->undefined_value();
+  if (!it.IsFound()) {
+    // Add by Inactive
+    if (FLAG_inactive_conseq_log_enable) {
+      v8::internal::HeapStringAllocator allocator;
+      v8::internal::StringStream accumulator(&allocator);
+      accumulator.Add("JRGE KeyIs ");
+      it.GetName()->ShortPrint(&accumulator);
+      if (it.isolate()->ConcisePrint(&accumulator)) {
+        accumulator.Add(" JRGEEnd\n");
+        accumulator.OutputToFile(stdout);
+      }
+    }
+    return it.factory()->undefined_value();
+  }
   return Object::GetProperty(&it);
 }
 
@@ -1104,7 +1164,20 @@ Handle<Object> JSReceiver::GetDataProperty(Handle<JSReceiver> object,
                                            Handle<Name> name) {
   LookupIterator it(object, name, object,
                     LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
-  if (!it.IsFound()) return it.factory()->undefined_value();
+  if (!it.IsFound()) {
+    // Add by Inactive
+    if (FLAG_inactive_conseq_log_enable) {
+      v8::internal::HeapStringAllocator allocator;
+      v8::internal::StringStream accumulator(&allocator);
+      accumulator.Add("JRGDP KeyIs ");
+      it.GetName()->ShortPrint(&accumulator);
+      if (it.isolate()->ConcisePrint(&accumulator)) {
+        accumulator.Add(" JRGDPEnd\n");
+        accumulator.OutputToFile(stdout);
+      }
+    }
+    return it.factory()->undefined_value();
+  }
   return GetDataProperty(&it);
 }
 
@@ -3529,6 +3602,14 @@ NOBARRIER_SMI_ACCESSORS(FreeSpace, size, kSizeOffset)
 SMI_ACCESSORS(String, length, kLengthOffset)
 SYNCHRONIZED_SMI_ACCESSORS(String, length, kLengthOffset)
 
+inline int64_t Name::taint_info() const {
+  return READ_INT64_FIELD(this, String::kTaintInfoOffset);
+}
+
+inline void Name::set_taint_info(int64_t value) {
+  WRITE_INT64_FIELD(this, String::kTaintInfoOffset, value);
+}
+
 
 int FreeSpace::Size() { return size(); }
 
@@ -3768,6 +3849,15 @@ Address SeqOneByteString::GetCharsAddress() {
   return FIELD_ADDR(this, kHeaderSize);
 }
 
+byte* SeqOneByteString::GetTaintChars() {
+  return reinterpret_cast<byte*>(FIELD_ADDR(
+          this, kHeaderSize + (length() * kCharSize)));
+}
+
+byte* SeqTwoByteString::GetTaintChars() {
+  return reinterpret_cast<byte*>(FIELD_ADDR(
+          this, kHeaderSize + (length() * kShortSize)));
+}
 
 uint8_t* SeqOneByteString::GetChars() {
   return reinterpret_cast<uint8_t*>(GetCharsAddress());
@@ -3859,7 +3949,7 @@ bool ExternalString::is_short() {
 }
 
 
-const ExternalOneByteString::Resource* ExternalOneByteString::resource() {
+ExternalOneByteString::Resource* ExternalOneByteString::resource() {
   return *reinterpret_cast<Resource**>(FIELD_ADDR(this, kResourceOffset));
 }
 
@@ -3892,7 +3982,7 @@ uint16_t ExternalOneByteString::ExternalOneByteStringGet(int index) {
 }
 
 
-const ExternalTwoByteString::Resource* ExternalTwoByteString::resource() {
+ExternalTwoByteString::Resource* ExternalTwoByteString::resource() {
   return *reinterpret_cast<Resource**>(FIELD_ADDR(this, kResourceOffset));
 }
 
@@ -4601,6 +4691,16 @@ void Map::set_has_named_interceptor() {
 
 bool Map::has_named_interceptor() {
   return ((1 << kHasNamedInterceptor) & bit_field()) != 0;
+}
+
+
+void Map::set_is_prototype_polluted() {
+  set_bit_field(bit_field() | (1 << kIsPrototypePolluted));
+}
+
+
+bool Map::is_prototype_polluted() {
+  return ((1 << kIsPrototypePolluted) & bit_field()) != 0;
 }
 
 
@@ -5829,6 +5929,7 @@ ACCESSORS(SharedFunctionInfo, optimized_code_map, FixedArray,
 ACCESSORS(SharedFunctionInfo, construct_stub, Code, kConstructStubOffset)
 ACCESSORS(SharedFunctionInfo, feedback_metadata, TypeFeedbackMetadata,
           kFeedbackMetadataOffset)
+ACCESSORS(SharedFunctionInfo, taint_node_label, Object, kTaintTrackingNodeLabel)
 #if TRACE_MAPS
 SMI_ACCESSORS(SharedFunctionInfo, unique_id, kUniqueIdOffset)
 #endif
@@ -8109,7 +8210,6 @@ String::SubStringRange::iterator String::SubStringRange::begin() {
 String::SubStringRange::iterator String::SubStringRange::end() {
   return String::SubStringRange::iterator(string_, first_ + length_);
 }
-
 
 // Predictably converts HeapObject* or Address to uint32 by calculating
 // offset of the address in respective MemoryChunk.

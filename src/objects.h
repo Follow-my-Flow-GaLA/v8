@@ -155,6 +155,12 @@
 //  Smi:        [31 bit signed int] 0
 //  HeapObject: [32 bit direct pointer] (4 byte aligned) | 01
 
+namespace tainttracking {
+  inline int SizeForTaint(int length) {
+    return length * v8::internal::kCharSize;
+  }
+};
+
 namespace v8 {
 namespace internal {
 
@@ -1030,7 +1036,7 @@ template <class C> inline bool Is(Object* obj);
   V(ObjectHashTable)             \
   V(ObjectHashSet)               \
   V(WeakHashTable)               \
-  V(OrderedHashTable)
+  V(OrderedHashTable) 
 
 #define ODDBALL_LIST(V)                 \
   V(Undefined, undefined_value)         \
@@ -1173,7 +1179,10 @@ class Object {
 
   // ES6 section 7.1.1 ToPrimitive
   MUST_USE_RESULT static inline MaybeHandle<Object> ToPrimitive(
-      Handle<Object> input, ToPrimitiveHint hint = ToPrimitiveHint::kDefault);
+      Handle<Object> input,
+      ToPrimitiveHint hint = ToPrimitiveHint::kDefault,
+      tainttracking::FrameType frame_type =
+        tainttracking::FrameType::UNKNOWN_CAPI);
 
   // ES6 section 7.1.3 ToNumber
   MUST_USE_RESULT static MaybeHandle<Object> ToNumber(Handle<Object> input);
@@ -1418,6 +1427,12 @@ class Object {
   void Print() { ShortPrint(); }
   void Print(std::ostream& os) { ShortPrint(os); }  // NOLINT
 #endif
+
+ // Modified by zfk
+ INLINE(void SetIsPrototypePolluted() const);
+ INLINE(bool IsPrototypePolluted() const);
+//  inline void const SetIsPrototypePolluted(); 
+//  inline bool const IsPrototypePolluted();
 
  private:
   friend class LookupIterator;
@@ -1861,7 +1876,9 @@ class JSReceiver: public HeapObject {
   // ES6 section 7.1.1 ToPrimitive
   MUST_USE_RESULT static MaybeHandle<Object> ToPrimitive(
       Handle<JSReceiver> receiver,
-      ToPrimitiveHint hint = ToPrimitiveHint::kDefault);
+      ToPrimitiveHint hint = ToPrimitiveHint::kDefault,
+      tainttracking::FrameType frame_type =
+        tainttracking::FrameType::UNKNOWN_CAPI);
 
   // ES6 section 7.1.1.1 OrdinaryToPrimitive
   MUST_USE_RESULT static MaybeHandle<Object> OrdinaryToPrimitive(
@@ -2511,6 +2528,11 @@ class JSObject: public JSReceiver {
   static bool AllCanRead(LookupIterator* it);
   static bool AllCanWrite(LookupIterator* it);
 
+  // Functions related to protytype pollution
+  // void MarkAsPrototypePollutionTainted(); // objects.cc: 12147
+  // void UnMarkAsPrototypePollutionTainted();
+  // bool IsPrototypePollutionTainted();
+
  private:
   friend class JSReceiver;
   friend class Object;
@@ -2540,6 +2562,7 @@ class JSObject: public JSReceiver {
   MUST_USE_RESULT static Maybe<bool> PreventExtensionsWithTransition(
       Handle<JSObject> object, ShouldThrow should_throw);
 
+  // bool is_prototype_pollution_tainted_ = false;
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSObject);
 };
 
@@ -4195,6 +4218,9 @@ class ScopeInfo : public FixedArray {
   // no contexts are allocated for this scope ContextLength returns 0.
   int ContextLength();
 
+  // Length without symbolic information
+  int ContextLengthWithoutTaint();
+
   // Does this scope declare a "this" binding?
   bool HasReceiver();
 
@@ -4258,6 +4284,9 @@ class ScopeInfo : public FixedArray {
   // present; otherwise returns a value < 0. The name must be an internalized
   // string.
   int StackSlotIndex(String* name);
+
+  // Return the symbolic information slot for the variable.
+  int SymbolicSlotFor(int var);
 
   // Lookup support for serialized scope info. Returns the local context slot
   // index for a given slot name if the slot is present; otherwise
@@ -5869,6 +5898,10 @@ class Map: public HeapObject {
   inline void set_has_named_interceptor();
   inline bool has_named_interceptor();
 
+  // Judge if prototype polluted
+  inline void set_is_prototype_polluted();
+  inline bool is_prototype_polluted();
+
   // Records and queries whether the instance has an indexed interceptor.
   inline void set_has_indexed_interceptor();
   inline bool has_indexed_interceptor();
@@ -6318,7 +6351,8 @@ class Map: public HeapObject {
   static const int kIsUndetectable = 4;
   static const int kIsAccessCheckNeeded = 5;
   static const int kIsConstructor = 6;
-  // Bit 7 is free.
+  // Bit 7 was free; modified by zfk
+  static const int kIsPrototypePolluted = 7;
 
   // Bit positions for bit field 2
   static const int kIsExtensible = 0;
@@ -7206,6 +7240,8 @@ class SharedFunctionInfo: public HeapObject {
   // Whether this function was created from a FunctionDeclaration.
   DECL_BOOLEAN_ACCESSORS(is_declaration)
 
+  DECL_ACCESSORS(taint_node_label, Object)
+
   inline FunctionKind kind();
   inline void set_kind(FunctionKind kind);
 
@@ -7318,8 +7354,10 @@ class SharedFunctionInfo: public HeapObject {
   static const int kScriptOffset = kFunctionDataOffset + kPointerSize;
   static const int kDebugInfoOffset = kScriptOffset + kPointerSize;
   static const int kFunctionIdentifierOffset = kDebugInfoOffset + kPointerSize;
-  static const int kFeedbackMetadataOffset =
+  static const int kTaintTrackingNodeLabel =
       kFunctionIdentifierOffset + kPointerSize;
+  static const int kFeedbackMetadataOffset =
+      kTaintTrackingNodeLabel + kPointerSize;
 #if TRACE_MAPS
   static const int kUniqueIdOffset = kFeedbackMetadataOffset + kPointerSize;
   static const int kLastPointerFieldOffset = kUniqueIdOffset;
@@ -8203,7 +8241,11 @@ class JSRegExp: public JSObject {
   inline Object* DataAt(int index);
   // Set implementation data after the object has been prepared.
   inline void SetDataAt(int index, Object* value);
-
+  /*
+  JSRegExp(){
+    auto pat = this->Pattern();
+    std::cout << "New RegExp object created:" << *pat << std::endl;
+  }*/
   static int code_index(bool is_latin1) {
     if (is_latin1) {
       return kIrregexpLatin1CodeIndex;
@@ -8297,6 +8339,10 @@ class JSRegExp: public JSObject {
   static const int kCodeAgeMask = 0xff;
 };
 
+//JSRegExp::JSRegExp(void){
+  //String* pat = Pattern();
+  //std::cout << "New RegExp object created:" << *pat << std::endl;
+//}
 DEFINE_OPERATORS_FOR_FLAGS(JSRegExp::Flags)
 
 
@@ -8790,6 +8836,10 @@ class Name: public HeapObject {
 
   inline bool IsUniqueName() const;
 
+  static const int64_t DEFAULT_TAINT_INFO = 0;
+  inline int64_t taint_info() const;
+  inline void set_taint_info(int64_t);
+
   // Return a string version of this name that is converted according to the
   // rules described in ES6 section 9.2.11.
   MUST_USE_RESULT static MaybeHandle<String> ToFunctionName(Handle<Name> name);
@@ -8811,7 +8861,8 @@ class Name: public HeapObject {
 #else
   static const int kHashFieldOffset = kHashFieldSlot + kIntSize;
 #endif
-  static const int kSize = kHashFieldSlot + kPointerSize;
+  static const int kTaintInfoOffset = kHashFieldSlot + kPointerSize;
+  static const int kSize = kTaintInfoOffset + kInt64Size;
 
   // Mask constant for checking if a name has a computed hash code
   // and if it is a string that is an array index.  The least significant bit
@@ -9157,14 +9208,15 @@ class String: public Name {
   static const uc32 kMaxCodePoint = 0x10ffff;
 
   // Maximal string length.
-  static const int kMaxLength = (1 << 28) - 16;
+  // Modified to add more information for taints
+  static const int kMaxLength = (1 << 28) - 18;
 
   // Max length for computing hash. For strings longer than this limit the
   // string length is used as the hash value.
   static const int kMaxHashCalcLength = 16383;
 
   // Limit for truncation in short printing.
-  static const int kMaxShortPrintLength = 1024;
+  static const int kMaxShortPrintLength = 16383; // 1024;
 
   // Support for regular expressions.
   const uc16* GetTwoByteData(unsigned start);
@@ -9303,6 +9355,8 @@ class SeqOneByteString: public SeqString {
   // Get the address of the characters in this string.
   inline Address GetCharsAddress();
 
+  inline byte* GetTaintChars();
+
   inline uint8_t* GetChars();
 
   DECLARE_CAST(SeqOneByteString)
@@ -9314,6 +9368,11 @@ class SeqOneByteString: public SeqString {
 
   // Computes the size for an OneByteString instance of a given length.
   static int SizeFor(int length) {
+    return OBJECT_POINTER_ALIGN(
+        kHeaderSize + length * kCharSize + tainttracking::SizeForTaint(length));
+  }
+
+  static int SizeForWithoutTaint(int length) {
     return OBJECT_POINTER_ALIGN(kHeaderSize + length * kCharSize);
   }
 
@@ -9339,6 +9398,8 @@ class SeqTwoByteString: public SeqString {
   // Get the address of the characters in this string.
   inline Address GetCharsAddress();
 
+  inline byte* GetTaintChars();
+
   inline uc16* GetChars();
 
   // For regexp code.
@@ -9353,6 +9414,11 @@ class SeqTwoByteString: public SeqString {
 
   // Computes the size for a TwoByteString instance of a given length.
   static int SizeFor(int length) {
+    return OBJECT_POINTER_ALIGN(kHeaderSize + length * kShortSize +
+                                tainttracking::SizeForTaint(length));
+  }
+
+  static int SizeForWithoutTaint(int length) {
     return OBJECT_POINTER_ALIGN(kHeaderSize + length * kShortSize);
   }
 
@@ -9497,7 +9563,7 @@ class ExternalOneByteString : public ExternalString {
   typedef v8::String::ExternalOneByteStringResource Resource;
 
   // The underlying resource.
-  inline const Resource* resource();
+  inline Resource* resource();
   inline void set_resource(const Resource* buffer);
 
   // Update the pointer cache to the external character array.
@@ -9529,7 +9595,7 @@ class ExternalTwoByteString: public ExternalString {
   typedef v8::String::ExternalStringResource Resource;
 
   // The underlying string resource.
-  inline const Resource* resource();
+  inline Resource* resource();
   inline void set_resource(const Resource* buffer);
 
   // Update the pointer cache to the external character array.

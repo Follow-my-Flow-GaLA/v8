@@ -1642,6 +1642,124 @@ void JavaScriptFrame::Print(StringStream* accumulator,
 }
 
 
+// Add by Inactive
+bool JavaScriptFrame::DoConcisePrintFrame(StringStream* accumulator,
+                            PrintMode mode) const {
+  DisallowHeapAllocation no_gc;
+  Object* receiver = this->receiver();
+  JSFunction* function = this->function();
+
+  Code* code = NULL;
+  if (IsConstructor()) accumulator->Add("new ");
+  accumulator->PrintFunction(function, receiver, &code);
+
+  // Get scope information for nicer output, if possible. If code is NULL, or
+  // doesn't contain scope info, scope_info will return 0 for the number of
+  // parameters, stack local variables, context local variables, stack slots,
+  // or context slots.
+  SharedFunctionInfo* shared = function->shared();
+  ScopeInfo* scope_info = shared->scope_info();
+  Object* script_obj = shared->script();
+  if (script_obj->IsScript()) {
+    Script* script = Script::cast(script_obj);
+    accumulator->Add(" [");
+    if (!accumulator->ShouldPrintName(script->name(), FLAG_name_should_exclude)) {
+      // Excluding names with FLAG_name_should_exclude
+      return false;
+    }
+    accumulator->PrintName(script->name());
+
+    Address pc = this->pc();
+    if (code != NULL && code->kind() == Code::FUNCTION &&
+        pc >= code->instruction_start() && pc < code->instruction_end()) {
+      int offset = static_cast<int>(pc - code->instruction_start());
+      int source_pos = AbstractCode::cast(code)->SourcePosition(offset);
+      int line = script->GetLineNumber(source_pos) + 1;
+      Handle<Script> script_handler(script, isolate());
+      int column = Script::GetColumnNumber(script_handler, source_pos);
+      accumulator->Add(":%d:%d]", line, column);
+    } else if (is_interpreted()) {
+      const InterpretedFrame* iframe =
+          reinterpret_cast<const InterpretedFrame*>(this);
+      BytecodeArray* bytecodes = iframe->GetBytecodeArray();
+      int offset = iframe->GetBytecodeOffset();
+      int source_pos = AbstractCode::cast(bytecodes)->SourcePosition(offset);
+      int line = script->GetLineNumber(source_pos) + 1;
+      Handle<Script> script_handler(script, isolate());
+      int column = Script::GetColumnNumber(script_handler, source_pos);
+      accumulator->Add(":%d:%d]", line, column);
+    } else {
+      int function_start_pos = shared->start_position();
+      int line = script->GetLineNumber(function_start_pos) + 1;
+      Handle<Script> script_handler(script, isolate());
+      int column = Script::GetColumnNumber(script_handler, line);
+      accumulator->Add(":%d:%d]", line, column);
+    }
+  }
+  accumulator->Put('\n');
+  PrintFunctionSource(accumulator, shared, code);
+  return true;
+}
+
+
+// Add by Inactive
+// Update: Also include column number for precise position match
+void JavaScriptFrame::GetScriptInfo(StringStream* source_code_accumulator,
+                            StringStream* line_number_accumulator) const {
+  DisallowHeapAllocation no_gc;
+  Object* receiver = this->receiver();
+  JSFunction* function = this->function();
+
+  Code* code = function->code();
+  // if (IsConstructor()) accumulator->Add("new ");
+  // accumulator->PrintFunction(function, receiver, &code);
+
+  SharedFunctionInfo* shared = function->shared();
+  ScopeInfo* scope_info = shared->scope_info();
+  Object* script_obj = shared->script();
+  if (script_obj->IsScript()) {
+    Script* script = Script::cast(script_obj);
+    // accumulator->Add(" [");
+    // accumulator->PrintName(script->name());
+
+    Address pc = this->pc();
+    if (code != NULL && code->kind() == Code::FUNCTION &&
+        pc >= code->instruction_start() && pc < code->instruction_end()) {
+      int offset = static_cast<int>(pc - code->instruction_start());
+      int source_pos = AbstractCode::cast(code)->SourcePosition(offset);
+      int line = script->GetLineNumber(source_pos) + 1;
+      Handle<Script> script_handler(script, isolate());
+      int column = Script::GetColumnNumber(script_handler, source_pos);
+      // Also include column number
+      line_number_accumulator->Add("%d,%d", line, column);
+    } else if (is_interpreted()) {
+      const InterpretedFrame* iframe =
+          reinterpret_cast<const InterpretedFrame*>(this);
+      BytecodeArray* bytecodes = iframe->GetBytecodeArray();
+      int offset = iframe->GetBytecodeOffset();
+      int source_pos = AbstractCode::cast(bytecodes)->SourcePosition(offset);
+      int line = script->GetLineNumber(source_pos) + 1;
+      Handle<Script> script_handler(script, isolate());
+      int column = Script::GetColumnNumber(script_handler, source_pos);
+      line_number_accumulator->Add("%d,%d", line, column);
+    } else {
+      int function_start_pos = shared->start_position();
+      int line = script->GetLineNumber(function_start_pos) + 1;
+      Handle<Script> script_handler(script, isolate());
+      int column = Script::GetColumnNumber(script_handler, function_start_pos);
+      line_number_accumulator->Add("%d,%d", line, column);
+    }
+  }
+  // accumulator->Put('\n'); 
+  // PrintFunctionSource(accumulator, shared, code);
+  if (FLAG_max_stack_trace_source_length != 0 && code != NULL) {
+    std::ostringstream os;
+    os << SourceCodeOf(shared, FLAG_max_stack_trace_source_length);
+    source_code_accumulator->Add(os.str().c_str());
+  }
+}
+
+
 void ArgumentsAdaptorFrame::Print(StringStream* accumulator,
                                   PrintMode mode,
                                   int index) const {

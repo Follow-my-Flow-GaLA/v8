@@ -581,10 +581,36 @@ Node* Interpreter::BuildLoadNamedProperty(Callable ic,
   Node* smi_slot = __ SmiTag(raw_slot);
   Node* type_feedback_vector = __ LoadTypeFeedbackVector();
   Node* context = __ GetContext();
-  return __ CallStub(
+  
+  Node* result = __ CallStub(
       ic.descriptor(), code_target, context, Arg(Descriptor::kReceiver, object),
       Arg(Descriptor::kName, name), Arg(Descriptor::kSlot, smi_slot),
       Arg(Descriptor::kVector, type_feedback_vector));
+  // By Inactive
+  // Label done(assembler), print_undefined(assembler);
+  // Node* undefined_value =
+  //     __ HeapConstant(isolate_->factory()->undefined_value());
+  // __ BranchIfWordEqual(result, undefined_value, &print_undefined, &done);
+  // __ Bind(&print_undefined);
+  // {
+  //   Variable var_name(assembler, MachineRepresentation::kTagged);
+  //   Variable var_result(assembler, MachineRepresentation::kTagged);
+  //   var_name.Bind(name);
+  //   var_result.Bind(result);
+
+  //   PrintF("Undef_prop found in BuildLoadNamedProperty! Name: TODO ");//%s", static_cast<char[]>(*(var_name.value())));
+  //   // PrintF(" Value: %s ", static_cast<char[]>(*(var_result.value()))); // For testing
+  //   // auto ln = __ isolate()->CaptureCurrentStackTrace(0, StackTrace::kOverview);
+
+  //   // TODO: print js file info
+  //   __ isolate()->PrintStack(stdout);
+  //   PrintF("\n");
+  //   __ Goto(&done);
+  // }
+  // __ Bind(&done);
+  // {
+    return result;
+  // }
 }
 
 // LdaNamedProperty <object> <name_index> <slot>
@@ -621,10 +647,40 @@ Node* Interpreter::BuildLoadKeyedProperty(Callable ic,
   Node* smi_slot = __ SmiTag(raw_slot);
   Node* type_feedback_vector = __ LoadTypeFeedbackVector();
   Node* context = __ GetContext();
-  return __ CallStub(
+  
+  Node* result = __ CallStub(
       ic.descriptor(), code_target, context, Arg(Descriptor::kReceiver, object),
       Arg(Descriptor::kName, name), Arg(Descriptor::kSlot, smi_slot),
       Arg(Descriptor::kVector, type_feedback_vector));
+  // By Inactive
+  // Variable var_name(assembler, MachineRepresentation::kTagged);
+  // Variable var_result(assembler, MachineRepresentation::kTagged);
+
+  
+  // Label done(assembler), print_undefined(assembler);
+  // Node* undefined_value =
+  //     __ HeapConstant(isolate_->factory()->undefined_value());
+  // __ BranchIfWordEqual(result, undefined_value, &print_undefined, &done);
+  // __ Bind(&print_undefined);
+  // {
+  //   Variable var_name(assembler, MachineRepresentation::kTagged);
+  //   Variable var_result(assembler, MachineRepresentation::kTagged);
+  //   var_name.Bind(name);
+  //   var_result.Bind(result);
+
+  //   PrintF("Undef_prop found in BuildLoadKeyedProperty! Name: TODO ");//%s", static_cast<char[]>(*(var_name.value())));
+  //   // PrintF(" Value: %s ", static_cast<char[]>(*(var_result.value()))); // For testing
+  //   // auto ln = __ isolate()->CaptureCurrentStackTrace(0, StackTrace::kOverview);
+
+  //   // TODO: print js file info
+  //   __ isolate()->PrintStack(stdout);
+  //   PrintF("\n");
+  //   __ Goto(&done);
+  // }
+  // __ Bind(&done);
+  // {
+    return result;
+  // }
 }
 
 // KeyedLoadIC <object> <slot>
