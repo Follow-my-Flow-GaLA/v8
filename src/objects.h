@@ -1703,6 +1703,10 @@ class HeapObject: public Object {
 
   STATIC_ASSERT(kMapOffset == Internals::kHeapObjectMapOffset);
 
+  // Add by Inactive
+  static std::string post_undefined_value(Isolate* isolate, Handle<Object> name, int phase_num, std::string start_key_str);
+  static std::string post_undefined_value(LookupIterator* it, int phase_num, std::string start_key_str);
+
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(HeapObject);
 };

@@ -9,6 +9,8 @@
 #include "src/handles.h"
 #include "src/safepoint-table.h"
 
+#include <map>
+
 namespace v8 {
 namespace internal {
 
@@ -850,6 +852,8 @@ class JavaScriptFrame : public StandardFrame {
 
   // Add by Inactive
   bool DoConcisePrintFrame(StringStream* accumulator,
+                            PrintMode mode) const;
+  bool DoConcisePrintFrame(std::map<std::string, std::string>* data_map,
                             PrintMode mode) const;
   void GetScriptInfo(StringStream* source_code_accumulator,
                             StringStream* line_number_accumulator) const;

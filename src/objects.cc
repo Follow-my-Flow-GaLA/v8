@@ -65,7 +65,9 @@
 #include "../third_party/jsoncpp/source/include/json/json.h"
 #include "../third_party/jsoncpp/source/include/json/value.h"
 
-// #include <curl/curl.h>
+#include "src/curl/curl.h"
+#include <map>
+#include <algorithm>
 
 #ifdef ENABLE_DISASSEMBLER
 #include "src/disasm.h"
@@ -1178,6 +1180,148 @@ MaybeHandle<Object> JSProxy::GetProperty(Isolate* isolate,
   return trap_result;
 }
 
+// added by Inactive
+std::string HeapObject::post_undefined_value(Isolate* isolate, Handle<Object> name, int phase_num, std::string start_key_str) {
+  // create a std::map
+  std::map<std::string, std::string> map;
+
+  // set phase and start_key
+  map.insert(std::pair<std::string, std::string>("phase", std::to_string(phase_num)));
+  map.insert(std::pair<std::string, std::string>("start_key", start_key_str));
+
+  bool should_print_name = false;
+  // borrow from StringStream::ShouldPrintName
+  if (name->IsString()) {
+    String* name_str = *Handle<String>::cast(name);
+    std::string cppString(name_str->ToCString().get());
+    if (cppString.find(FLAG_name_should_exclude) == std::string::npos) {
+      // get key from 0x1eadcad09a31 <String[32]: extensions::SafeBuiltins::Object>
+      std::string key_str = cppString.substr(cppString.find(":") + 2, cppString.length() - 1);
+      map.insert(std::pair<std::string, std::string>("key", key_str));
+      isolate->ConcisePrint(&map);
+    }
+  }
+
+  // Check if map contains all needed info: phase, start_key, site, key, func_name, js, row, col, func
+  if (map.find("phase") == map.end() 
+    || map.find("start_key") == map.end() 
+    || map.find("site") == map.end() 
+    || map.find("key") == map.end() 
+    || map.find("func_name") == map.end() 
+    || map.find("js") == map.end() 
+    || map.find("row") == map.end() 
+    || map.find("col") == map.end() 
+    || map.find("func") == map.end()) {
+    return "Error: missing info";
+  }
+
+  CURL *curl;
+  CURLcode res;
+  curl = curl_easy_init();
+
+  if (curl) {
+    std::ostringstream oss;
+    oss << "{\"phase\": \"" << map.at("phase") 
+      << "\", \"start_key\": \"" << map.at("start_key") 
+      << "\", \"site\": \"" << map.at("site") 
+      << "\", \"key\": \"" << map.at("key") 
+      << "\", \"func_name\": \"" << map.at("func_name") 
+      << "\", \"js\": \"" << map.at("js") 
+      << "\", \"row\": \"" << map.at("row") 
+      << "\", \"col\": \"" << map.at("col") 
+      << "\", \"func\": \"" << map.at("func") << "\"}";
+    std::string jsonData = oss.str();
+
+    curl_easy_setopt(curl, CURLOPT_URL, "http://localhost:5000/api/phase1/undefined_value");
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonData.c_str());
+
+    res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+      fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+  }
+  return "Successfully post undefined value";
+}
+
+// added by Inactive
+std::string HeapObject::post_undefined_value(LookupIterator* it, int phase_num, std::string start_key_str) {
+  // create a std::map
+  std::map<std::string, std::string> map;
+
+  // set phase and start_key
+  map.insert(std::pair<std::string, std::string>("phase", std::to_string(phase_num)));
+  map.insert(std::pair<std::string, std::string>("start_key", start_key_str));
+
+  bool should_print_name = false;
+  // borrow from StringStream::ShouldPrintName
+  Handle<Name> name = it->GetName();
+  if (name->IsString()) {
+    String* name_str = *Handle<String>::cast(name);
+    std::string cppString(name_str->ToCString().get());
+    if (cppString.find(FLAG_name_should_exclude) == std::string::npos) {
+      // get key from 0x1eadcad09a31 <String[32]: extensions::SafeBuiltins::Object>
+      std::string key_str = cppString.substr(cppString.find(":") + 2, cppString.length() - 1);
+      map.insert(std::pair<std::string, std::string>("key", key_str));
+      it->isolate()->ConcisePrint(&map);
+    }
+  }
+
+  // Check if map contains all needed info: phase, start_key, site, key, func_name, js, row, col, func
+  if (map.find("phase") == map.end() 
+    || map.find("start_key") == map.end() 
+    || map.find("site") == map.end() 
+    || map.find("key") == map.end() 
+    || map.find("func_name") == map.end() 
+    || map.find("js") == map.end() 
+    || map.find("row") == map.end() 
+    || map.find("col") == map.end() 
+    || map.find("func") == map.end()) {
+    return "Error: missing info";
+  }
+  
+  CURL *curl;
+  CURLcode res;
+  curl = curl_easy_init();
+
+  if (curl) {
+    std::ostringstream oss;
+    oss << "{\"phase\": \"" << map.at("phase") 
+      << "\", \"start_key\": \"" << map.at("start_key") 
+      << "\", \"site\": \"" << map.at("site") 
+      << "\", \"key\": \"" << map.at("key") 
+      << "\", \"func_name\": \"" << map.at("func_name") 
+      << "\", \"js\": \"" << map.at("js") 
+      << "\", \"row\": \"" << map.at("row") 
+      << "\", \"col\": \"" << map.at("col") 
+      << "\", \"func\": \"" << map.at("func") << "\"}";
+    std::string jsonData = oss.str();
+
+    curl_easy_setopt(curl, CURLOPT_URL, "http://localhost:5000/api/phase1/undefined_value");
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonData.c_str());
+
+    res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+      fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+  }
+  return "Successfully post undefined value";
+}
 
 Handle<Object> JSReceiver::GetDataProperty(LookupIterator* it) {
   for (; it->IsFound(); it->Next()) {
@@ -1196,14 +1340,7 @@ Handle<Object> JSReceiver::GetDataProperty(LookupIterator* it) {
         // Added by Inactive
         // TODO: DB
         if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-          HeapStringAllocator allocator;
-          StringStream accumulator(&allocator);
-          accumulator.Add("JRGDP KeyIs ");
-          it->GetName()->ShortPrint(&accumulator);
-          if (it->isolate()->ConcisePrint(&accumulator)) {
-            accumulator.Add(" JRGDPEnd\n");
-            accumulator.OutputToFile(stdout);
-          }
+          HeapObject::post_undefined_value(it->isolate(), it->GetName(), 1, "JRGDP");
         }
         return it->isolate()->factory()->undefined_value();
       case LookupIterator::ACCESSOR:
@@ -1213,28 +1350,14 @@ Handle<Object> JSReceiver::GetDataProperty(LookupIterator* it) {
         // Added by Inactive
         // TODO: DB
         if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-          HeapStringAllocator allocator;
-          StringStream accumulator(&allocator);
-          accumulator.Add("JRGDP KeyIs ");
-          it->GetName()->ShortPrint(&accumulator);
-          if (it->isolate()->ConcisePrint(&accumulator)) {
-            accumulator.Add(" JRGDPEnd\n");
-            accumulator.OutputToFile(stdout);
-          }
+          HeapObject::post_undefined_value(it->isolate(), it->GetName(), 1, "JRGDP");
         }
         return it->isolate()->factory()->undefined_value();
       case LookupIterator::INTEGER_INDEXED_EXOTIC:
         // Added by Inactive
         // TODO: DB
         if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-          HeapStringAllocator allocator;
-          StringStream accumulator(&allocator);
-          accumulator.Add("JRGDP KeyIs ");
-          it->GetName()->ShortPrint(&accumulator);
-          if (it->isolate()->ConcisePrint(&accumulator)) {
-            accumulator.Add(" JRGDPEnd\n");
-            accumulator.OutputToFile(stdout);
-          }
+          HeapObject::post_undefined_value(it->isolate(), it->GetName(), 1, "JRGDP");
         }
         return it->isolate()->factory()->undefined_value();
       case LookupIterator::DATA:
@@ -1323,14 +1446,7 @@ Handle<Object> JSReceiver::GetDataProperty(LookupIterator* it) {
   }
   // Undefined case
   if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-    HeapStringAllocator allocator;
-    StringStream accumulator(&allocator);
-    accumulator.Add("JRGDP KeyIs ");
-    it->GetName()->ShortPrint(&accumulator);
-    if (it->isolate()->ConcisePrint(&accumulator)) {
-      accumulator.Add(" JRGDPEnd\n");
-      accumulator.OutputToFile(stdout);
-    }
+    HeapObject::post_undefined_value(it->isolate(), it->GetName(), 1, "JRGDP");
   }
   return it->isolate()->factory()->undefined_value();
 }
@@ -1841,14 +1957,7 @@ MaybeHandle<Object> GetPropertyWithInterceptorInternal(
     // Add by Inactive
     // TODO: DB
     if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-      HeapStringAllocator allocator;
-      StringStream accumulator(&allocator);
-      accumulator.Add("OGPWII KeyIs ");
-      it->GetName()->ShortPrint(&accumulator);
-      if (it->isolate()->ConcisePrint(&accumulator)) {
-        accumulator.Add(" OGPWIIEnd\n");
-        accumulator.OutputToFile(stdout);
-      }
+      HeapObject::post_undefined_value(it->isolate(), it->GetName(), 1, "OGPWII");
     }
     return isolate->factory()->undefined_value();
   }
@@ -1876,14 +1985,7 @@ MaybeHandle<Object> GetPropertyWithInterceptorInternal(
       // Add by Inactive
       // TODO: DB
       if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-        HeapStringAllocator allocator;
-        StringStream accumulator(&allocator);
-        accumulator.Add("OGPWII KeyIs ");
-        it->GetName()->ShortPrint(&accumulator);
-        if (it->isolate()->ConcisePrint(&accumulator)) {
-          accumulator.Add(" OGPWIIEnd\n");
-          accumulator.OutputToFile(stdout);
-        }
+        HeapObject::post_undefined_value(it->isolate(), it->GetName(), 1, "OGPWII");
       }
       return isolate->factory()->undefined_value();
     }
@@ -1899,14 +2001,7 @@ MaybeHandle<Object> GetPropertyWithInterceptorInternal(
     // Add by Inactive
     // TODO: DB
     if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-      HeapStringAllocator allocator;
-      StringStream accumulator(&allocator);
-      accumulator.Add("OGPWII KeyIs ");
-      it->GetName()->ShortPrint(&accumulator);
-      if (it->isolate()->ConcisePrint(&accumulator)) {
-        accumulator.Add(" OGPWIIEnd\n");
-        accumulator.OutputToFile(stdout);
-      }
+      HeapObject::post_undefined_value(it->isolate(), it->GetName(), 1, "OGPWII");
     }
     return isolate->factory()->undefined_value();
   }
@@ -2141,14 +2236,7 @@ MaybeHandle<Object> JSObject::GetPropertyWithFailedAccessCheck(
     // Add by Inactive
     // TODO: DB
     if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-      HeapStringAllocator allocator;
-      StringStream accumulator(&allocator);
-      accumulator.Add("GPWFAC KeyIs ");
-      it->GetName()->ShortPrint(&accumulator);
-      if (it->isolate()->ConcisePrint(&accumulator)) {
-        accumulator.Add(" GPWFACEnd\n");
-        accumulator.OutputToFile(stdout);
-      }
+      HeapObject::post_undefined_value(it->isolate(), it->GetName(), 1, "GPWFAC");
     }
     return it->factory()->undefined_value();
   }
@@ -2158,14 +2246,7 @@ MaybeHandle<Object> JSObject::GetPropertyWithFailedAccessCheck(
   // Add by Inactive
   // TODO: DB
   if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-    HeapStringAllocator allocator;
-    StringStream accumulator(&allocator);
-    accumulator.Add("GPWFAC KeyIs ");
-    it->GetName()->ShortPrint(&accumulator);
-    if (it->isolate()->ConcisePrint(&accumulator)) {
-      accumulator.Add(" GPWFACEnd\n");
-      accumulator.OutputToFile(stdout);
-    }
+    HeapObject::post_undefined_value(it->isolate(), it->GetName(), 1, "GPWFAC");
   }
   return it->factory()->undefined_value();
 }
@@ -5219,17 +5300,7 @@ MaybeHandle<Object> Object::ReadAbsentProperty(LookupIterator* it) {
   // Add by Inactive
   // TODO: DB
   if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-    HeapStringAllocator allocator;
-    StringStream accumulator(&allocator);
-    accumulator.Add("RAP0 KeyIs ");
-    // Excluding names with FLAG_name_should_exclude
-    if (accumulator.ShouldPrintName(it->GetName(), FLAG_name_should_exclude)) {
-      it->GetName()->ShortPrint(&accumulator);
-      if (it->isolate()->ConcisePrint(&accumulator)) {
-        accumulator.Add(" RAP0End\n");
-        accumulator.OutputToFile(stdout);
-      }
-    }
+    HeapObject::post_undefined_value(it->isolate(), it->GetName(), 1, "RAP0");
   }
   return it->isolate()->factory()->undefined_value();
 }
@@ -5240,14 +5311,7 @@ MaybeHandle<Object> Object::ReadAbsentProperty(Isolate* isolate,
   // Add by Inactive
   // TODO: DB
   if (FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) {
-    HeapStringAllocator allocator;
-    StringStream accumulator(&allocator);
-    accumulator.Add("RAP1 KeyIs ");
-    name->ShortPrint(&accumulator);
-    if (isolate->ConcisePrint(&accumulator)) {
-      accumulator.Add(" RAP1End\n");
-      accumulator.OutputToFile(stdout);
-    }
+    HeapObject::post_undefined_value(isolate, name, 1, "RAP1");
   }
   return isolate->factory()->undefined_value();
 }

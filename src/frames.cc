@@ -19,6 +19,8 @@
 #include "src/wasm/wasm-debug.h"
 #include "src/wasm/wasm-module.h"
 
+#include <map>
+
 namespace v8 {
 namespace internal {
 
@@ -1698,6 +1700,97 @@ bool JavaScriptFrame::DoConcisePrintFrame(StringStream* accumulator,
   }
   accumulator->Put('\n');
   PrintFunctionSource(accumulator, shared, code);
+  return true;
+}
+
+
+// Add by Inactive
+bool JavaScriptFrame::DoConcisePrintFrame(std::map<std::string, std::string>* data_map,
+                            PrintMode mode) const {
+  DisallowHeapAllocation no_gc;
+  Object* receiver = this->receiver();
+  JSFunction* function = this->function();
+
+  std::string func_name = "";
+  Code* code = NULL;
+  if (IsConstructor()) func_name.append("new ");
+
+  // create a v8::internal::StringStream
+  HeapStringAllocator func_name_allocator;
+  StringStream func_name_accumulator(&func_name_allocator);
+  func_name_accumulator.PrintFunction(function, receiver, &code);
+
+  // get func_name from func_name_accumulator
+  func_name.append(func_name_accumulator.ToCString().get());
+
+  // insert func_name into data_map
+  data_map->insert(std::pair<std::string, std::string>("func_name", func_name));
+
+  // Get scope information for nicer output, if possible. If code is NULL, or
+  // doesn't contain scope info, scope_info will return 0 for the number of
+  // parameters, stack local variables, context local variables, stack slots,
+  // or context slots.
+  SharedFunctionInfo* shared = function->shared();
+  ScopeInfo* scope_info = shared->scope_info();
+  Object* script_obj = shared->script();
+  if (script_obj->IsScript()) {
+    Script* script = Script::cast(script_obj);
+
+    // borrow from StringStream::ShouldPrintName
+    Object* name = script->name();
+    if (name->IsString()) {
+      String* name_str = String::cast(name);
+      std::string cppString(name_str->ToCString().get());
+      if (cppString.find(FLAG_name_should_exclude) == std::string::npos) {
+        // insert js_name into data_map
+        data_map->insert(std::pair<std::string, std::string>("js_name", cppString));
+      } else {
+        return false;
+      }
+    }
+
+    Address pc = this->pc();
+    if (code != NULL && code->kind() == Code::FUNCTION &&
+        pc >= code->instruction_start() && pc < code->instruction_end()) {
+      int offset = static_cast<int>(pc - code->instruction_start());
+      int source_pos = AbstractCode::cast(code)->SourcePosition(offset);
+      int line = script->GetLineNumber(source_pos) + 1;
+      Handle<Script> script_handler(script, isolate());
+      int column = Script::GetColumnNumber(script_handler, source_pos);
+      // insert row and col into data_map
+      data_map->insert(std::pair<std::string, std::string>("row", std::to_string(line)));
+      data_map->insert(std::pair<std::string, std::string>("col", std::to_string(column)));
+    } else if (is_interpreted()) {
+      const InterpretedFrame* iframe =
+          reinterpret_cast<const InterpretedFrame*>(this);
+      BytecodeArray* bytecodes = iframe->GetBytecodeArray();
+      int offset = iframe->GetBytecodeOffset();
+      int source_pos = AbstractCode::cast(bytecodes)->SourcePosition(offset);
+      int line = script->GetLineNumber(source_pos) + 1;
+      Handle<Script> script_handler(script, isolate());
+      int column = Script::GetColumnNumber(script_handler, source_pos);
+      // insert row and col into data_map
+      data_map->insert(std::pair<std::string, std::string>("row", std::to_string(line)));
+      data_map->insert(std::pair<std::string, std::string>("col", std::to_string(column)));
+    } else {
+      int function_start_pos = shared->start_position();
+      int line = script->GetLineNumber(function_start_pos) + 1;
+      Handle<Script> script_handler(script, isolate());
+      int column = Script::GetColumnNumber(script_handler, line);
+      // insert row and col into data_map
+      data_map->insert(std::pair<std::string, std::string>("row", std::to_string(line)));
+      data_map->insert(std::pair<std::string, std::string>("col", std::to_string(column)));
+    }
+  }
+
+  // borrow from PrintFunctionSource(accumulator, shared, code)
+  if (FLAG_max_stack_trace_source_length != 0 && code != NULL) {
+    std::ostringstream os;
+    os << SourceCodeOf(shared, FLAG_max_stack_trace_source_length);
+    // insert func into data_map
+    data_map->insert(std::pair<std::string, std::string>("func", os.str()));
+  }
+
   return true;
 }
 

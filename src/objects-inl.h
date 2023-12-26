@@ -1074,7 +1074,6 @@ MaybeHandle<Object> Object::ToPrimitive(Handle<Object> input,
       Handle<JSReceiver>::cast(input), hint, frame_type);
 }
 
-
 bool Object::HasSpecificClassOf(String* name) {
   return this->IsJSObject() && (JSObject::cast(this)->class_name() == name);
 }
@@ -1085,14 +1084,7 @@ MaybeHandle<Object> Object::GetProperty(Handle<Object> object,
   if (!it.IsFound()) {
     // Add by Inactive
     if (FLAG_inactive_conseq_log_enable) {
-      v8::internal::HeapStringAllocator allocator;
-      v8::internal::StringStream accumulator(&allocator);
-      accumulator.Add("OGP KeyIs ");
-      it.GetName()->ShortPrint(&accumulator);
-      if (it.isolate()->ConcisePrint(&accumulator)) {
-        accumulator.Add(" OGPEnd\n");
-        accumulator.OutputToFile(stdout);
-      }
+      HeapObject::post_undefined_value(&it, 1, "OGP");
     }
     return it.factory()->undefined_value();
   }
@@ -1105,14 +1097,7 @@ MaybeHandle<Object> JSReceiver::GetProperty(Handle<JSReceiver> receiver,
   if (!it.IsFound()) {
     // Add by Inactive
     if (FLAG_inactive_conseq_log_enable) {
-      v8::internal::HeapStringAllocator allocator;
-      v8::internal::StringStream accumulator(&allocator);
-      accumulator.Add("JRGP KeyIs ");
-      it.GetName()->ShortPrint(&accumulator);
-      if (it.isolate()->ConcisePrint(&accumulator)) {
-        accumulator.Add(" JRGPEnd\n");
-        accumulator.OutputToFile(stdout);
-      }
+      HeapObject::post_undefined_value(&it, 1, "JRG");
     }
     return it.factory()->undefined_value();
   }
@@ -1125,14 +1110,7 @@ MaybeHandle<Object> Object::GetElement(Isolate* isolate, Handle<Object> object,
   if (!it.IsFound()) {
     // Add by Inactive
     if (FLAG_inactive_conseq_log_enable) {
-      v8::internal::HeapStringAllocator allocator;
-      v8::internal::StringStream accumulator(&allocator);
-      accumulator.Add("OGE KeyIs ");
-      it.GetName()->ShortPrint(&accumulator);
-      if (it.isolate()->ConcisePrint(&accumulator)) {
-        accumulator.Add(" OGEEnd\n");
-        accumulator.OutputToFile(stdout);
-      }
+      HeapObject::post_undefined_value(&it, 1, "OGE");
     }
     return it.factory()->undefined_value();
   }
@@ -1146,14 +1124,7 @@ MaybeHandle<Object> JSReceiver::GetElement(Isolate* isolate,
   if (!it.IsFound()) {
     // Add by Inactive
     if (FLAG_inactive_conseq_log_enable) {
-      v8::internal::HeapStringAllocator allocator;
-      v8::internal::StringStream accumulator(&allocator);
-      accumulator.Add("JRGE KeyIs ");
-      it.GetName()->ShortPrint(&accumulator);
-      if (it.isolate()->ConcisePrint(&accumulator)) {
-        accumulator.Add(" JRGEEnd\n");
-        accumulator.OutputToFile(stdout);
-      }
+      HeapObject::post_undefined_value(&it, 1, "JRGE");
     }
     return it.factory()->undefined_value();
   }
@@ -1167,14 +1138,7 @@ Handle<Object> JSReceiver::GetDataProperty(Handle<JSReceiver> object,
   if (!it.IsFound()) {
     // Add by Inactive
     if (FLAG_inactive_conseq_log_enable) {
-      v8::internal::HeapStringAllocator allocator;
-      v8::internal::StringStream accumulator(&allocator);
-      accumulator.Add("JRGDP KeyIs ");
-      it.GetName()->ShortPrint(&accumulator);
-      if (it.isolate()->ConcisePrint(&accumulator)) {
-        accumulator.Add(" JRGDPEnd\n");
-        accumulator.OutputToFile(stdout);
-      }
+      HeapObject::post_undefined_value(&it, 1, "JRGDP");
     }
     return it.factory()->undefined_value();
   }

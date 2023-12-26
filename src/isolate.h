@@ -34,6 +34,8 @@
 
 #include "src/taint_tracking.h"
 
+#include <map>
+
 namespace v8 {
 
 namespace base {
@@ -707,6 +709,8 @@ class Isolate {
   // Add by Inactive
   bool ConcisePrint(StringStream* accumulator);
   bool DoConcisePrint(StringStream* accumulator);
+  bool ConcisePrint(std::map<std::string, std::string>* data_map);
+  bool DoConcisePrint(std::map<std::string, std::string>* data_map);
   bool DoGetScriptInfo(StringStream* source_code_accumulator,
                           StringStream* line_number_accumulator);
 

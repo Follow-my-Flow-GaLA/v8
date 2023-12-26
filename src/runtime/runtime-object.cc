@@ -15,6 +15,9 @@
 #include "../third_party/jsoncpp/source/include/json/json.h"
 #include "../third_party/jsoncpp/source/include/json/value.h"
 
+// add by Inactive
+#include "src/objects.h"
+
 namespace v8 {
 namespace internal {
 
@@ -50,14 +53,7 @@ MaybeHandle<Object> Runtime::GetObjectProperty(
   // Added by Inactive
   if ((FLAG_phase3_enable || FLAG_inactive_conseq_log_enable) && (result.is_null() || !it.IsFound()) && key->IsString()) {
     // We ignore the case where key->IsSymbol()
-    HeapStringAllocator allocator;
-    StringStream accumulator(&allocator);
-    accumulator.Add("RTO KeyIs ");
-    key->ShortPrint(&accumulator);
-    if (isolate->ConcisePrint(&accumulator)) {
-      accumulator.Add(" RTOEnd\n");
-      accumulator.OutputToFile(stdout);
-    }
+    HeapObject::post_undefined_value(&it, 1, "RTO");
   }
   
   // Taint obj here, due to tainted key

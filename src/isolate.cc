@@ -43,6 +43,8 @@
 
 #include "src/taint_tracking-inl.h"
 
+#include <map>
+
 namespace v8 {
 namespace internal {
 
@@ -883,6 +885,28 @@ bool Isolate::ConcisePrint(StringStream* accumulator) {
   }
 }
 
+// Add by Inactive
+bool Isolate::ConcisePrint(std::map<std::string, std::string>* data_map) {
+  if (stack_trace_nesting_level_ == 0) {
+    stack_trace_nesting_level_++;
+    bool should_output = DoConcisePrint(data_map);
+    stack_trace_nesting_level_ = 0;
+    return should_output;
+  } else if (stack_trace_nesting_level_ == 1) {
+    stack_trace_nesting_level_++;
+    base::OS::PrintError(
+      "\n\nAttempt to print stack while printing stack (double fault)\n");
+    base::OS::PrintError(
+      "If you are lucky you may find a partial stack dump on stdout.\n\n");
+    // accumulator = incomplete_message_;
+    return true;
+  } else {
+    base::OS::Abort();
+    // Unreachable
+    return false;
+  }
+}
+
 
 static void PrintFrames(Isolate* isolate,
                         StringStream* accumulator,
@@ -961,6 +985,45 @@ bool Isolate::DoConcisePrint(StringStream* accumulator) {
       }
     }
     accumulator->Add("Skip Non-JS;");
+    it.Advance();
+  }
+  return has_js_frame && should_print;
+}
+
+// Add by Inactive
+bool Isolate::DoConcisePrint(std::map<std::string, std::string>* data_map) {
+  // The MentionedObjectCache is not GC-proof at the moment.
+  DisallowHeapAllocation no_gc;
+  HandleScope scope(this);
+
+  // Avoid printing anything if there are no frames.
+  if (c_entry_fp(thread_local_top()) == 0) return false;
+
+  StackFrameIterator it(this);
+  // Only print top JS frame info
+  bool has_js_frame = false;
+  bool should_print = false;
+  while (!it.done()) {
+    if (it.frame()->is_java_script()) {
+      JavaScriptFrame* jsFrame = static_cast<JavaScriptFrame*>(it.frame());
+      if (!jsFrame->function()->IsJSFunction()) {
+        // accumulator->Add("Skip Non-JSFunction;");
+        it.Advance();
+        continue;
+      }
+      Object* script = jsFrame->function()->shared()->script();
+      // Don't show functions from native scripts to user.
+      if (script->IsScript() &&
+              Script::TYPE_NATIVE != Script::cast(script)->type()) {
+                should_print = jsFrame->DoConcisePrintFrame(data_map, StackFrame::OVERVIEW);
+                has_js_frame = true;
+                break;
+              }
+      else {
+        it.Advance();
+        continue;
+      }
+    }
     it.Advance();
   }
   return has_js_frame && should_print;

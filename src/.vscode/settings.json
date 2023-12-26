@@ -48,6 +48,7 @@
         "typeinfo": "cpp",
         "algorithm": "cpp",
         "memory": "cpp",
-        "string": "cpp"
+        "string": "cpp",
+        "string_view": "cpp"
     }
 }
