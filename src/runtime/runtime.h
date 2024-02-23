@@ -204,6 +204,8 @@ namespace internal {
 #define FOR_EACH_INTRINSIC_FORIN(F) \
   F(ForInDone, 2, 1)                \
   F(ForInEnumerate, 1, 1)           \
+  /** Inactive XSS Debug */         \
+  F(TaintForInObject, 1, 1)         \
   F(ForInFilter, 2, 1)              \
   F(ForInHasProperty, 2, 1)         \
   F(ForInNext, 4, 1)                \

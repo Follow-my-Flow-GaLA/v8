@@ -2008,6 +2008,14 @@ void Interpreter::DoForInPrepare(InterpreterAssembler* assembler) {
     Node* output_register = __ BytecodeOperandReg(1);
     BuildForInPrepareResult(output_register, cache_type, cache_array,
                             cache_length, assembler);
+    /**
+     * Inactive XSS Debug
+    */
+    if(FLAG_should_taint_forin){
+      // __ CallRuntime(Runtime::kTaintForInObject, context, receiver);
+      // PrintF("ForInPrepare: use_enum_cache\n");
+    }
+
     __ Dispatch();
   }
 
@@ -2021,6 +2029,14 @@ void Interpreter::DoForInPrepare(InterpreterAssembler* assembler) {
     Node* output_register = __ BytecodeOperandReg(1);
     BuildForInPrepareResult(output_register, cache_type, cache_array,
                             cache_length, assembler);
+    /**
+     * Inactive XSS Debug
+    */
+    if(FLAG_should_taint_forin){
+      // PrintF("ForInPrepare: use_runtime\n");
+      // __ CallRuntime(Runtime::kTaintForInObject, context, receiver);
+    }
+
     __ Dispatch();
   }
 
@@ -2050,6 +2066,9 @@ void Interpreter::DoForInNext(InterpreterAssembler* assembler) {
   // Load the next key from the enumeration array.
   Node* key = __ LoadFixedArrayElement(cache_array, index, 0,
                                        CodeStubAssembler::SMI_PARAMETERS);
+
+  // Inactive XSS Debug
+  PrintF("DoForInNext\n");
 
   // Check if we can use the for-in fast path potentially using the enum cache.
   Label if_fast(assembler), if_slow(assembler, Label::kDeferred);
@@ -2088,6 +2107,9 @@ void Interpreter::DoForInDone(InterpreterAssembler* assembler) {
   Node* index = __ LoadRegister(index_reg);
   Node* cache_length_reg = __ BytecodeOperandReg(1);
   Node* cache_length = __ LoadRegister(cache_length_reg);
+
+  // Inactive XSS Debug
+  PrintF("DoForInDone\n");
 
   // Check if {index} is at {cache_length} already.
   Label if_true(assembler), if_false(assembler), end(assembler);

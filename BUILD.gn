@@ -35,7 +35,8 @@ declare_args() {
   v8_embed_script = ""
 
   # Sets -dENABLE_DISASSEMBLER.
-  v8_enable_disassembler = ""
+  # Inactive XSS Debug
+  v8_enable_disassembler = true
 
   # Sets -dENABLE_GDB_JIT_INTERFACE.
   v8_enable_gdbjit = ""
@@ -55,7 +56,8 @@ declare_args() {
   v8_interpreted_regexp = false
 
   # Sets -dOBJECT_PRINT.
-  v8_object_print = ""
+  # Inactive XSS Debug 
+  v8_object_print = true
 
   # With post mortem support enabled, metadata is embedded into libv8 that
   # describes various parameters of the VM for use by debuggers. See
@@ -119,6 +121,13 @@ config("internal_config") {
       "BUILDING_V8_SHARED",
     ]
   }
+}
+
+# Add by Inactive: libcurl
+config("curl_config") {
+  include_dirs = [ "/usr/include/x86_64-linux-gnu/curl" ]
+  lib_dirs = [ "/usr/lib/x86_64-linux-gnu" ]
+  libs = [ "curl" ]
 }
 
 config("internal_config_base") {
@@ -851,17 +860,17 @@ if (v8_use_external_startup_data) {
 v8_source_set("v8_base") {
   visibility = [ ":*" ]  # Only targets in this file can depend on this.
 
+  #  "src/curl-7.79.1/include/curl/curl.h",
+  #  "src/curl-7.79.1/include/curl/curlver.h",
+  #  "src/curl-7.79.1/include/curl/easy.h",
+  #  "src/curl-7.79.1/include/curl/mprintf.h",
+  #  "src/curl-7.79.1/include/curl/multi.h",
+  #  "src/curl-7.79.1/include/curl/options.h",
+  #  "src/curl-7.79.1/include/curl/stdcheaders.h",
+  #  "src/curl-7.79.1/include/curl/system.h",
+  #  "src/curl-7.79.1/include/curl/typecheck-gcc.h",
+  #  "src/curl-7.79.1/include/curl/urlapi.h",
   sources = [
-    "src/curl/curl.h",
-    "src/curl/curlver.h",
-    "src/curl/easy.h",
-    "src/curl/mprintf.h",
-    "src/curl/multi.h",
-    "src/curl/options.h",
-    "src/curl/stdcheaders.h",
-    "src/curl/system.h",
-    "src/curl/typecheck-gcc.h",
-    "src/curl/urlapi.h",
     "src/SHA256.h", 
     "src/SHA256.cc",
     "//base/trace_event/common/trace_event_common.h",
@@ -2060,6 +2069,12 @@ v8_source_set("v8_base") {
 
   # Include capnp for taint tracking logging
   include_dirs = [ rebase_path("$target_gen_dir/", root_build_dir) ]
+
+  # # Add by Inactive: curl
+  # include_dirs += [ "/usr/include/x86_64-linux-gnu/curl" ]
+  # include_dirs += [ "../../build/linux/debian_wheezy_amd64-sysroot/usr/include" ]
+  # libs = [ "curl" ]
+  configs += [ ":curl_config" ]
 
   if (is_win) {
     # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.

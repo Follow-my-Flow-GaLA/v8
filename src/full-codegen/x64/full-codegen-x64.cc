@@ -998,6 +998,15 @@ void FullCodeGenerator::VisitForInStatement(ForInStatement* stmt) {
   ToObjectStub stub(isolate());
   __ CallStub(&stub);
   __ bind(&done_convert);
+
+  // Inactive XSS Debug
+  if(FLAG_should_taint_forin){
+    __ CallRuntime(Runtime::kSystemBreak);
+    __ Push(rax); // Duplicate the enumerable object on the stack;
+    __ CallRuntime(Runtime::kTaintForInObject);
+    __ Pop(rax); // Dont know whether this line is nessary or not;
+  }
+  
   PrepareForBailoutForId(stmt->ToObjectId(), BailoutState::TOS_REGISTER);
   __ Push(rax);
 

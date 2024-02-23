@@ -1742,8 +1742,8 @@ bool JavaScriptFrame::DoConcisePrintFrame(std::map<std::string, std::string>* da
       String* name_str = String::cast(name);
       std::string cppString(name_str->ToCString().get());
       if (cppString.find(FLAG_name_should_exclude) == std::string::npos) {
-        // insert js_name into data_map
-        data_map->insert(std::pair<std::string, std::string>("js_name", cppString));
+        // insert js into data_map (the name of that script)
+        data_map->insert(std::pair<std::string, std::string>("js", cppString));
       } else {
         return false;
       }

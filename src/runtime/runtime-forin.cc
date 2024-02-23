@@ -110,6 +110,23 @@ RUNTIME_FUNCTION(Runtime_ForInEnumerate) {
   RETURN_RESULT_OR_FAILURE(isolate, Enumerate(receiver));
 }
 
+/**
+ * Inactive XSS Debug
+*/
+RUNTIME_FUNCTION(Runtime_TaintForInObject) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(JSReceiver, receiver, 0);
+
+  // Taint the object (receiver)
+
+  PrintF("Runtime_TaintForInObject has been called!\n");
+  receiver->Print();
+
+
+  return isolate->heap()->undefined_value();
+}
+
 
 RUNTIME_FUNCTION_RETURN_TRIPLE(Runtime_ForInPrepare) {
   HandleScope scope(isolate);

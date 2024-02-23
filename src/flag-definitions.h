@@ -304,10 +304,18 @@ DEFINE_BOOL(inactive_taint_enable, false,
             "Enable taint tracking of inactive consequences of pp, i.e. phase2. ")
 DEFINE_BOOL(phase3_enable, false,
             "Enable both detection and taint tracking of inactive consequences of pp, i.e. phase3. ")
+DEFINE_BOOL(should_taint_forin, true,
+            "Should treat forin as a source. ")
+DEFINE_BOOL(debug_print, true,
+            "Debugging mode and should print details. ")
 DEFINE_STRING(undef_prop_dataset_file, nullptr,
             "File path of undef_prop_dataset (json file). ")
-DEFINE_STRING(name_should_exclude, "extensions::",
-            "Names that should be excluded from log_file, e.g., extensions::. ")
+DEFINE_STRING(current_site, nullptr,
+            "Current site, input from outside V8. ")
+DEFINE_STRING(name_should_exclude, "::",
+            "Names that should be excluded from log_file or sending to db, e.g., extensions::. ")
+DEFINE_STRING(js_name_should_exclude, "chrome-extension://",
+            "JS Names that should be excluded from log_file or sending to db, e.g., chrome-extension://. ")
 DEFINE_IMPLICATION(undef_prop_dataset_file, inactive_taint_enable)
 
 DEFINE_IMPLICATION(

@@ -63,9 +63,10 @@
 
 #include "src/SHA256.h"
 #include "../third_party/jsoncpp/source/include/json/json.h"
-#include "../third_party/jsoncpp/source/include/json/value.h"
+// #include "../third_party/jsoncpp/source/include/json/value.h"
 
-#include "src/curl/curl.h"
+// #include "src/curl-7.79.1/include/curl/curl.h"
+#include <curl/curl.h>
 #include <map>
 #include <algorithm>
 
@@ -80,6 +81,7 @@ namespace internal {
 
 // Add by Inactive
 Json::Value undef_prop_dataset_o;
+Json::Value request_cache; // drop request if it hits cache
 bool undef_prop_dataset_loaded_o = false;
 
 std::ostream& operator<<(std::ostream& os, InstanceType instance_type) {
@@ -1180,14 +1182,25 @@ MaybeHandle<Object> JSProxy::GetProperty(Isolate* isolate,
   return trap_result;
 }
 
-// added by Inactive
-std::string HeapObject::post_undefined_value(Isolate* isolate, Handle<Object> name, int phase_num, std::string start_key_str) {
-  // create a std::map
-  std::map<std::string, std::string> map;
+// Added by Inactive
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) {
+    size_t total_size = size * nmemb;
+    output->append((char*)contents, total_size);
+    return total_size;
+}
 
-  // set phase and start_key
+// Added by Inactive
+std::string HeapObject::post_undefined_value(Isolate* isolate, Handle<Object> name, int phase_num, std::string start_key_str) {
+  std::map<std::string, std::string> map;
   map.insert(std::pair<std::string, std::string>("phase", std::to_string(phase_num)));
-  map.insert(std::pair<std::string, std::string>("start_key", start_key_str));
+  map.insert(std::pair<std::string, std::string>("start_key", start_key_str)); 
+
+  if (!FLAG_current_site) {
+    fprintf(stderr, "Error: not assigning current_site\n");
+    return "Error: not assigning current_site";
+  } else {
+    map.insert(std::pair<std::string, std::string>("site", FLAG_current_site)); 
+  }
 
   bool should_print_name = false;
   // borrow from StringStream::ShouldPrintName
@@ -1195,42 +1208,163 @@ std::string HeapObject::post_undefined_value(Isolate* isolate, Handle<Object> na
     String* name_str = *Handle<String>::cast(name);
     std::string cppString(name_str->ToCString().get());
     if (cppString.find(FLAG_name_should_exclude) == std::string::npos) {
-      // get key from 0x1eadcad09a31 <String[32]: extensions::SafeBuiltins::Object>
-      std::string key_str = cppString.substr(cppString.find(":") + 2, cppString.length() - 1);
-      map.insert(std::pair<std::string, std::string>("key", key_str));
+      map.insert(std::pair<std::string, std::string>("key", cppString));
       isolate->ConcisePrint(&map);
     }
   }
+  if (map.find("key") == map.end() ) {
+    if (FLAG_debug_print) {
+      if (name->IsString()) {
+        PrintF("key skipped due to FLAG_name_should_exclude\n");
+      } else {
+        PrintF("key skipped due to non-string\n");
+      }
+    }
+    return "Warning: Key skipped";
+  }
 
   // Check if map contains all needed info: phase, start_key, site, key, func_name, js, row, col, func
-  if (map.find("phase") == map.end() 
-    || map.find("start_key") == map.end() 
-    || map.find("site") == map.end() 
-    || map.find("key") == map.end() 
-    || map.find("func_name") == map.end() 
-    || map.find("js") == map.end() 
-    || map.find("row") == map.end() 
-    || map.find("col") == map.end() 
-    || map.find("func") == map.end()) {
+  if (map.find("site") == map.end() ) {
+    if (FLAG_debug_print) {
+      fprintf(stderr, "Error: missing site\n");
+    }
+    return "Error: missing info";
+  }
+  if (map.find("func_name") == map.end() ) {
+    if (FLAG_debug_print) {
+      fprintf(stderr, "Error: missing func_name\n");
+    }
+    return "Error: missing info";
+  }
+  if (map.find("js") == map.end() ) {
+    if (FLAG_debug_print) {
+      fprintf(stderr, "Error: missing js\n");
+    }
+    return "Error: missing info";
+  }
+  if (map.find("row") == map.end() ) {
+    if (FLAG_debug_print) {
+      fprintf(stderr, "Error: missing row\n");
+    }
+    return "Error: missing info";
+  }
+  if (map.find("col") == map.end() ) {
+    if (FLAG_debug_print) {
+      fprintf(stderr, "Error: missing col\n");
+    }
+    return "Error: missing info";
+  }
+  if (map.find("func") == map.end() ) {
+    if (FLAG_debug_print) {
+      fprintf(stderr, "Error: missing func\n");
+    }
     return "Error: missing info";
   }
 
+  // Check if this JS name should be excluded
+  auto js_it = map.at("js");
+  DCHECK(js_it != map.end() && typeid(js_it) == typeid(std::string));
+  if (js_it.find(FLAG_js_name_should_exclude) != std::string::npos) {
+    // if map.find("func") contains FLAG_js_name_should_exclude: return
+    if (FLAG_debug_print) {
+      PrintF("JS name %s skipped!\n", js_it.c_str());
+    }
+    return "Warning: JS name skipped";
+  }
+
   CURL *curl;
+  CURLM *multi_handle;
   CURLcode res;
+  long http_code;
+
+  curl_global_init(CURL_GLOBAL_DEFAULT);
   curl = curl_easy_init();
 
   if (curl) {
-    std::ostringstream oss;
-    oss << "{\"phase\": \"" << map.at("phase") 
-      << "\", \"start_key\": \"" << map.at("start_key") 
-      << "\", \"site\": \"" << map.at("site") 
-      << "\", \"key\": \"" << map.at("key") 
-      << "\", \"func_name\": \"" << map.at("func_name") 
-      << "\", \"js\": \"" << map.at("js") 
-      << "\", \"row\": \"" << map.at("row") 
-      << "\", \"col\": \"" << map.at("col") 
-      << "\", \"func\": \"" << map.at("func") << "\"}";
-    std::string jsonData = oss.str();
+    Json::Value root;
+    root["phase"] = map.at("phase");
+    root["start_key"] = map.at("start_key");
+    root["site"] = map.at("site");
+    root["key"] = map.at("key");
+    root["func_name"] = map.at("func_name");
+    root["js"] = map.at("js");
+    root["row"] = map.at("row");
+    root["col"] = map.at("col");
+    root["func"] = map.at("func");
+
+    Json::StyledStreamWriter writer;
+    std::ostringstream oss, updated_oss;
+    writer.write(oss, root);
+
+    // jsonData is by default utf-8 encoded and can handle double quotes "\""
+    // The encoding should match the one written in python analysis code, e.g. phase1.py
+    std::string jsonData = oss.str(), updated_jsonData;
+
+    // Extract utf-8 encoded root["func"] part for hashing
+    Json::Value parsedRoot;
+    Json::Reader reader;
+    if (!reader.parse(oss.str(), parsedRoot)) {
+      fprintf(stderr, "Error reader.parse in %s\n", jsonData.c_str());
+      return "Error reader.parse";
+    }
+    DCHECK(parsedRoot.isMember("func"));
+
+    // Get hash value; using SHA256
+    SHA256 func_sha;
+    func_sha.update(parsedRoot["func"].asString());
+    uint8_t * digest = func_sha.digest();
+    std::string utf8_func_hash = SHA256::toString(digest);
+    delete[] digest;
+
+    // Check if this request is in cache and discard if so
+    // Define: a request is in the cache if code_hash and key are the same
+
+    // approach 1: use a set to store the request
+    // std::string this_req = utf8_func_hash + map.at("key");
+    // if (v8::internal::request_cache.find(this_req) != v8::internal::request_cache.end()) {
+    //   return "Warning: duplicate";
+    // } else {
+    //   // Add to request_cache
+    //   v8::internal::request_cache.insert(this_req);
+    // }
+
+    // approach 2: 
+    /*
+    {codehash: key: row,col}
+    */
+    // Check if the cache contains the hash
+    std::string row_col = map.at("row") + "," + map.at("col");
+    std::string key = map.at("key");
+    if (!request_cache[utf8_func_hash].isNull()) {
+        if (!request_cache[utf8_func_hash][key].isNull()) {
+            if (!request_cache[utf8_func_hash][key][row_col].isNull()) {
+                if (FLAG_debug_print) {
+                  PrintF("duplicate req skipped: [%s][%s][%s]\n", utf8_func_hash.c_str(), key.c_str(), row_col.c_str());
+                }
+                return "Warning: duplicate"; // Request is in cache, drop it
+            } else {
+                // Add to request_cache
+                request_cache[utf8_func_hash][key][row_col] = true;
+            }
+        } else {
+            // Key doesn't exist for this hash, add both key and row_col
+            request_cache[utf8_func_hash][key][row_col] = true;
+        }
+    } else {
+        // Hash doesn't exist in the cache, add hash, key, and row_col
+        request_cache[utf8_func_hash][key][row_col] = true;
+    }
+    // if (FLAG_debug_print) {
+    //   Json::StyledStreamWriter request_cache_writer("");
+    //   std::ostringstream request_cache_oss;
+    //   writer.write(request_cache_oss, request_cache);
+    //   PrintF("request_cache is now: %s\n", request_cache_oss.str().c_str());
+    // }
+
+    // Add a "code_hash" field with utf8_func_hash
+    root["code_hash"] = utf8_func_hash;
+    writer.write(updated_oss, root);
+    updated_jsonData = updated_oss.str();
 
     curl_easy_setopt(curl, CURLOPT_URL, "http://localhost:5000/api/phase1/undefined_value");
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -1238,89 +1372,47 @@ std::string HeapObject::post_undefined_value(Isolate* isolate, Handle<Object> na
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonData.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, updated_jsonData.c_str());
+    if (FLAG_debug_print) {
+      PrintF("jsonData is %s\n", updated_jsonData.c_str());
+      PrintF("utf8_func_hash is %s\n", utf8_func_hash.c_str());
+    }
 
-    res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-      fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    // Async approach:
+    // Set a callback function to handle the response
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    std::string response;
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+    // Chatgpt advice: Set the request to be performed asynchronously
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 1L);
+
+    multi_handle = curl_multi_init();
+    curl_multi_add_handle(multi_handle, curl);
+
+    int still_running;
+    do {
+        curl_multi_perform(multi_handle, &still_running);
+    } while (still_running);
+
+    // Check for errors
+    res = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    if (FLAG_debug_print) {
+      PrintF("http_code is %ld\n", http_code);
     }
 
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
+    curl_multi_cleanup(multi_handle);
   }
+  curl_global_cleanup();
   return "Successfully post undefined value";
 }
 
-// added by Inactive
+// Added by Inactive
 std::string HeapObject::post_undefined_value(LookupIterator* it, int phase_num, std::string start_key_str) {
-  // create a std::map
-  std::map<std::string, std::string> map;
-
-  // set phase and start_key
-  map.insert(std::pair<std::string, std::string>("phase", std::to_string(phase_num)));
-  map.insert(std::pair<std::string, std::string>("start_key", start_key_str));
-
-  bool should_print_name = false;
-  // borrow from StringStream::ShouldPrintName
-  Handle<Name> name = it->GetName();
-  if (name->IsString()) {
-    String* name_str = *Handle<String>::cast(name);
-    std::string cppString(name_str->ToCString().get());
-    if (cppString.find(FLAG_name_should_exclude) == std::string::npos) {
-      // get key from 0x1eadcad09a31 <String[32]: extensions::SafeBuiltins::Object>
-      std::string key_str = cppString.substr(cppString.find(":") + 2, cppString.length() - 1);
-      map.insert(std::pair<std::string, std::string>("key", key_str));
-      it->isolate()->ConcisePrint(&map);
-    }
-  }
-
-  // Check if map contains all needed info: phase, start_key, site, key, func_name, js, row, col, func
-  if (map.find("phase") == map.end() 
-    || map.find("start_key") == map.end() 
-    || map.find("site") == map.end() 
-    || map.find("key") == map.end() 
-    || map.find("func_name") == map.end() 
-    || map.find("js") == map.end() 
-    || map.find("row") == map.end() 
-    || map.find("col") == map.end() 
-    || map.find("func") == map.end()) {
-    return "Error: missing info";
-  }
-  
-  CURL *curl;
-  CURLcode res;
-  curl = curl_easy_init();
-
-  if (curl) {
-    std::ostringstream oss;
-    oss << "{\"phase\": \"" << map.at("phase") 
-      << "\", \"start_key\": \"" << map.at("start_key") 
-      << "\", \"site\": \"" << map.at("site") 
-      << "\", \"key\": \"" << map.at("key") 
-      << "\", \"func_name\": \"" << map.at("func_name") 
-      << "\", \"js\": \"" << map.at("js") 
-      << "\", \"row\": \"" << map.at("row") 
-      << "\", \"col\": \"" << map.at("col") 
-      << "\", \"func\": \"" << map.at("func") << "\"}";
-    std::string jsonData = oss.str();
-
-    curl_easy_setopt(curl, CURLOPT_URL, "http://localhost:5000/api/phase1/undefined_value");
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-
-    struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonData.c_str());
-
-    res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-      fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-    }
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-  }
-  return "Successfully post undefined value";
+  return HeapObject::post_undefined_value(it->isolate(), it->GetName(), phase_num, start_key_str);
 }
 
 Handle<Object> JSReceiver::GetDataProperty(LookupIterator* it) {
