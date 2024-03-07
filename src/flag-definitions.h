@@ -304,9 +304,9 @@ DEFINE_BOOL(inactive_taint_enable, false,
             "Enable taint tracking of inactive consequences of pp, i.e. phase2. ")
 DEFINE_BOOL(phase3_enable, false,
             "Enable both detection and taint tracking of inactive consequences of pp, i.e. phase3. ")
-DEFINE_BOOL(should_taint_forin, true,
+DEFINE_BOOL(should_taint_forin, false,
             "Should treat forin as a source. ")
-DEFINE_BOOL(debug_print, true,
+DEFINE_BOOL(debug_print, false,
             "Debugging mode and should print details. ")
 DEFINE_STRING(undef_prop_dataset_file, nullptr,
             "File path of undef_prop_dataset (json file). ")

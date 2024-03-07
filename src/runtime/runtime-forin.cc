@@ -111,18 +111,22 @@ RUNTIME_FUNCTION(Runtime_ForInEnumerate) {
 }
 
 /**
- * Inactive XSS Debug
+ * Inactive XSS Debug; Add by Inactive
 */
 RUNTIME_FUNCTION(Runtime_TaintForInObject) {
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
   CONVERT_ARG_HANDLE_CHECKED(JSReceiver, receiver, 0);
 
-  // Taint the object (receiver)
-
-  PrintF("Runtime_TaintForInObject has been called!\n");
-  receiver->Print();
-
+  if (FLAG_should_taint_forin){
+    PrintF("TaintForInObject ");
+    receiver->Print();
+    PrintF("ForInEnd\n");
+    // base::OS::DebugBreak();
+    // Taint the receiver object here
+    // JSReceiver::SetTaintWrapper(receiver);
+    tainttracking::SetTaint(receiver, tainttracking::TaintType::FORIN);
+  }
 
   return isolate->heap()->undefined_value();
 }

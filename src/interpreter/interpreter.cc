@@ -2000,6 +2000,16 @@ void Interpreter::DoForInPrepare(InterpreterAssembler* assembler) {
     Node* cache_length = __ EnumLength(cache_type);
     __ GotoIf(assembler->WordEqual(cache_length, zero_smi),
               &nothing_to_iterate);
+    
+    /**
+     * Inactive XSS Debug
+     * 
+     * The following line would just call the runtime function: kTaintForInObject
+     * Whether tainting the object is dependent on the flag: should_taint_forin
+     * Don't need to comment out the following line
+    */
+    __ CallRuntime(Runtime::kTaintForInObject, context, receiver);
+
     Node* descriptors = __ LoadMapDescriptors(cache_type);
     Node* cache_offset =
         __ LoadObjectField(descriptors, DescriptorArray::kEnumCacheOffset);
@@ -2008,34 +2018,31 @@ void Interpreter::DoForInPrepare(InterpreterAssembler* assembler) {
     Node* output_register = __ BytecodeOperandReg(1);
     BuildForInPrepareResult(output_register, cache_type, cache_array,
                             cache_length, assembler);
-    /**
-     * Inactive XSS Debug
-    */
-    if(FLAG_should_taint_forin){
-      // __ CallRuntime(Runtime::kTaintForInObject, context, receiver);
-      // PrintF("ForInPrepare: use_enum_cache\n");
-    }
 
     __ Dispatch();
   }
 
   __ Bind(&use_runtime);
   {
+    /**
+     * Inactive XSS Debug
+     * 
+     * The following line would just call the runtime function: kTaintForInObject
+     * Whether tainting the object is dependent on the flag: should_taint_forin
+     * Don't need to comment out the following line
+    */
+    
+    __ CallRuntime(Runtime::kTaintForInObject, context, receiver);
+
     Node* result_triple =
         __ CallRuntime(Runtime::kForInPrepare, context, receiver);
     Node* cache_type = __ Projection(0, result_triple);
     Node* cache_array = __ Projection(1, result_triple);
     Node* cache_length = __ Projection(2, result_triple);
     Node* output_register = __ BytecodeOperandReg(1);
+
     BuildForInPrepareResult(output_register, cache_type, cache_array,
                             cache_length, assembler);
-    /**
-     * Inactive XSS Debug
-    */
-    if(FLAG_should_taint_forin){
-      // PrintF("ForInPrepare: use_runtime\n");
-      // __ CallRuntime(Runtime::kTaintForInObject, context, receiver);
-    }
 
     __ Dispatch();
   }
@@ -2046,6 +2053,14 @@ void Interpreter::DoForInPrepare(InterpreterAssembler* assembler) {
     Node* output_register = __ BytecodeOperandReg(1);
     BuildForInPrepareResult(output_register, zero_smi, zero_smi, zero_smi,
                             assembler);
+    /**
+     * Inactive XSS Debug
+     * 
+     * The following line would just call the runtime function: kTaintForInObject
+     * Whether tainting the object is dependent on the flag: should_taint_forin
+     * Don't need to comment out the following line
+    */
+    // __ CallRuntime(Runtime::kTaintForInObject, context, receiver);
     __ Dispatch();
   }
 }
@@ -2066,9 +2081,6 @@ void Interpreter::DoForInNext(InterpreterAssembler* assembler) {
   // Load the next key from the enumeration array.
   Node* key = __ LoadFixedArrayElement(cache_array, index, 0,
                                        CodeStubAssembler::SMI_PARAMETERS);
-
-  // Inactive XSS Debug
-  PrintF("DoForInNext\n");
 
   // Check if we can use the for-in fast path potentially using the enum cache.
   Label if_fast(assembler), if_slow(assembler, Label::kDeferred);
@@ -2107,9 +2119,6 @@ void Interpreter::DoForInDone(InterpreterAssembler* assembler) {
   Node* index = __ LoadRegister(index_reg);
   Node* cache_length_reg = __ BytecodeOperandReg(1);
   Node* cache_length = __ LoadRegister(cache_length_reg);
-
-  // Inactive XSS Debug
-  PrintF("DoForInDone\n");
 
   // Check if {index} is at {cache_length} already.
   Label if_true(assembler), if_false(assembler), end(assembler);

@@ -972,7 +972,6 @@ void FullCodeGenerator::VisitSwitchStatement(SwitchStatement* stmt) {
 void FullCodeGenerator::VisitForInStatement(ForInStatement* stmt) {
   Comment cmnt(masm_, "[ ForInStatement");
   SetStatementPosition(stmt, SKIP_BREAK);
-
   FeedbackVectorSlot slot = stmt->ForInFeedbackSlot();
 
   // Get the object to enumerate over.
@@ -1000,12 +999,15 @@ void FullCodeGenerator::VisitForInStatement(ForInStatement* stmt) {
   __ bind(&done_convert);
 
   // Inactive XSS Debug
-  if(FLAG_should_taint_forin){
-    __ CallRuntime(Runtime::kSystemBreak);
-    __ Push(rax); // Duplicate the enumerable object on the stack;
-    __ CallRuntime(Runtime::kTaintForInObject);
-    __ Pop(rax); // Dont know whether this line is nessary or not;
-  }
+  // This if statement only control the compilation stage, not the runtime stage
+  // TODO: Need to use jump statement base on the runtime flag
+  // if(FLAG_should_taint_forin){
+  // __ CallRuntime(Runtime::kSystemBreak);
+  // __ DebugBreak();
+  // __ Push(rax); // Duplicate the enumerable object on the stack;
+  // __ CallRuntime(Runtime::kTaintForInObject);
+  // __ Pop(rax); // Dont know whether this line is nessary or not;
+  // }
   
   PrepareForBailoutForId(stmt->ToObjectId(), BailoutState::TOS_REGISTER);
   __ Push(rax);

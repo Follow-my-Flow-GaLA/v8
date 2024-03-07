@@ -20,6 +20,7 @@ struct TaintLogRecord {
     urlSearch @20;
     inactive @21;
     prototype @22;
+    forin @23;
     dom @5;
     referrer @6;
     windowname @7;

@@ -2228,9 +2228,10 @@ class V8_EXPORT String : public Name {
     MESSAGE_ORIGIN = 19,
     INACTIVE = 20,  // Add by Inactive
     PROTOTYPE = 21,  // Add by Inactive
+    FORIN = 22,  // Add by Inactive
 
     // This must be less than the value of URL_ENCODED
-    MAX_TAINT_TYPE = 22,
+    MAX_TAINT_TYPE = 23,
 
     // Encoding types
     URL_ENCODED = 32,            // 1 << 5
