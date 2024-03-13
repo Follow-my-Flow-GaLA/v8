@@ -8,6 +8,12 @@
 #include <iomanip>
 #include <memory>
 #include <sstream>
+#include <algorithm>
+#include <cstdint>
+#include <iostream>
+#include <vector>
+#include <regex>
+#include <string.h>
 
 #include "src/objects-inl.h"
 
@@ -66,9 +72,17 @@
 // #include "../third_party/jsoncpp/source/include/json/value.h"
 
 // #include "src/curl-7.79.1/include/curl/curl.h"
-#include <curl/curl.h>
-#include <map>
-#include <algorithm>
+// #include <curl/curl.h>
+// #include <map>
+
+#include <bsoncxx/builder/basic/document.hpp>
+#include <bsoncxx/json.hpp>
+#include <mongocxx/client.hpp>
+#include <mongocxx/instance.hpp>
+#include <mongocxx/stdx.hpp>
+#include <mongocxx/uri.hpp>
+
+// #include <curl/curl.h>
 
 #ifdef ENABLE_DISASSEMBLER
 #include "src/disasm.h"
@@ -83,6 +97,18 @@ namespace internal {
 Json::Value undef_prop_dataset_o;
 Json::Value request_cache; // drop request if it hits cache
 bool undef_prop_dataset_loaded_o = false;
+
+using bsoncxx::builder::basic::kvp;
+using bsoncxx::builder::basic::make_array;
+using bsoncxx::builder::basic::make_document;
+
+// Inactive: mongocxx driver
+mongocxx::instance instance{}; // This should be done only once.
+mongocxx::uri uri("mongodb://127.0.0.1:27017");
+mongocxx::client client(uri);
+auto db = client["phase1"];
+auto undef_prop_dataset_collection = db["undef_prop_dataset"];
+auto phase_info_collection = db["phase_info"];
 
 std::ostream& operator<<(std::ostream& os, InstanceType instance_type) {
   switch (instance_type) {
@@ -1212,6 +1238,7 @@ std::string HeapObject::post_undefined_value(Isolate* isolate, Handle<Object> na
       isolate->ConcisePrint(&map);
     }
   }
+
   if (map.find("key") == map.end() ) {
     if (FLAG_debug_print) {
       if (name->IsString()) {
@@ -1223,47 +1250,18 @@ std::string HeapObject::post_undefined_value(Isolate* isolate, Handle<Object> na
     return "Warning: Key skipped";
   }
 
-  // Check if map contains all needed info: phase, start_key, site, key, func_name, js, row, col, func
-  if (map.find("site") == map.end() ) {
-    if (FLAG_debug_print) {
-      fprintf(stderr, "Error: missing site\n");
-    }
-    return "Error: missing info";
-  }
-  if (map.find("func_name") == map.end() ) {
-    if (FLAG_debug_print) {
-      fprintf(stderr, "Error: missing func_name\n");
-    }
-    return "Error: missing info";
-  }
-  if (map.find("js") == map.end() ) {
-    if (FLAG_debug_print) {
-      fprintf(stderr, "Error: missing js\n");
-    }
-    return "Error: missing info";
-  }
-  if (map.find("row") == map.end() ) {
-    if (FLAG_debug_print) {
-      fprintf(stderr, "Error: missing row\n");
-    }
-    return "Error: missing info";
-  }
-  if (map.find("col") == map.end() ) {
-    if (FLAG_debug_print) {
-      fprintf(stderr, "Error: missing col\n");
-    }
-    return "Error: missing info";
-  }
-  if (map.find("func") == map.end() ) {
-    if (FLAG_debug_print) {
-      fprintf(stderr, "Error: missing func\n");
-    }
-    return "Error: missing info";
+  // check all required fields
+  auto required_fields = {"phase", "start_key", "site", "key", "func_name", "js", "row", "col", "func", "code_hash"};
+  for (auto field : required_fields) {
+      if (data.find(field) == data.end()) {
+          return std::string("Missing required field: ") + std::string(field);
+      }
   }
 
   // Check if this JS name should be excluded
   auto js_it = map.at("js");
-  DCHECK(js_it != map.end() && typeid(js_it) == typeid(std::string));
+  // TODO: this line of DCHECK has bug
+  // DCHECK(js_it != map.end() && typeid(js_it) == typeid(std::string));
   if (js_it.find(FLAG_js_name_should_exclude) != std::string::npos) {
     // if map.find("func") contains FLAG_js_name_should_exclude: return
     if (FLAG_debug_print) {
@@ -1272,147 +1270,213 @@ std::string HeapObject::post_undefined_value(Isolate* isolate, Handle<Object> na
     return "Warning: JS name skipped";
   }
 
-  CURL *curl;
-  CURLM *multi_handle;
-  CURLcode res;
-  long http_code;
+  // encode "func" 
+  // appraoch 1: using Json
+  Json::Value func_convert;
+  func_convert["func"] = map.at("func");
+  Json::StyledStreamWriter func_writer;
+  std::ostringstream func_oss;
+  func_writer.write(func_oss, func_convert);
+  std::string func_jsonData = func_oss.str();
+  map["func"] = func_jsonData;
+  // approach 2: using 
 
-  curl_global_init(CURL_GLOBAL_DEFAULT);
-  curl = curl_easy_init();
+  // Get hash value; using SHA256
+  SHA256 func_sha;
+  func_sha.update(map.at("func"));
+  uint8_t * digest = func_sha.digest();
+  std::string utf8_func_hash = SHA256::toString(digest);
+  delete[] digest;
+  map.insert(std::pair<std::string, std::string>("code_hash", utf8_func_hash));
 
-  if (curl) {
-    Json::Value root;
-    root["phase"] = map.at("phase");
-    root["start_key"] = map.at("start_key");
-    root["site"] = map.at("site");
-    root["key"] = map.at("key");
-    root["func_name"] = map.at("func_name");
-    root["js"] = map.at("js");
-    root["row"] = map.at("row");
-    root["col"] = map.at("col");
-    root["func"] = map.at("func");
 
-    Json::StyledStreamWriter writer;
-    std::ostringstream oss, updated_oss;
-    writer.write(oss, root);
-
-    // jsonData is by default utf-8 encoded and can handle double quotes "\""
-    // The encoding should match the one written in python analysis code, e.g. phase1.py
-    std::string jsonData = oss.str(), updated_jsonData;
-
-    // Extract utf-8 encoded root["func"] part for hashing
-    Json::Value parsedRoot;
-    Json::Reader reader;
-    if (!reader.parse(oss.str(), parsedRoot)) {
-      fprintf(stderr, "Error reader.parse in %s\n", jsonData.c_str());
-      return "Error reader.parse";
-    }
-    DCHECK(parsedRoot.isMember("func"));
-
-    // Get hash value; using SHA256
-    SHA256 func_sha;
-    func_sha.update(parsedRoot["func"].asString());
-    uint8_t * digest = func_sha.digest();
-    std::string utf8_func_hash = SHA256::toString(digest);
-    delete[] digest;
-
-    // Check if this request is in cache and discard if so
-    // Define: a request is in the cache if code_hash and key are the same
-
-    // approach 1: use a set to store the request
-    // std::string this_req = utf8_func_hash + map.at("key");
-    // if (v8::internal::request_cache.find(this_req) != v8::internal::request_cache.end()) {
-    //   return "Warning: duplicate";
-    // } else {
-    //   // Add to request_cache
-    //   v8::internal::request_cache.insert(this_req);
-    // }
-
-    // approach 2: 
-    /*
-    {codehash: key: row,col}
-    */
-    // Check if the cache contains the hash
-    std::string row_col = map.at("row") + "," + map.at("col");
-    std::string key = map.at("key");
-    if (!request_cache[utf8_func_hash].isNull()) {
-        if (!request_cache[utf8_func_hash][key].isNull()) {
-            if (!request_cache[utf8_func_hash][key][row_col].isNull()) {
-                if (FLAG_debug_print) {
-                  PrintF("duplicate req skipped: [%s][%s][%s]\n", utf8_func_hash.c_str(), key.c_str(), row_col.c_str());
-                }
-                return "Warning: duplicate"; // Request is in cache, drop it
-            } else {
-                // Add to request_cache
-                request_cache[utf8_func_hash][key][row_col] = true;
-            }
-        } else {
-            // Key doesn't exist for this hash, add both key and row_col
-            request_cache[utf8_func_hash][key][row_col] = true;
-        }
-    } else {
-        // Hash doesn't exist in the cache, add hash, key, and row_col
-        request_cache[utf8_func_hash][key][row_col] = true;
-    }
-    // if (FLAG_debug_print) {
-    //   Json::StyledStreamWriter request_cache_writer("");
-    //   std::ostringstream request_cache_oss;
-    //   writer.write(request_cache_oss, request_cache);
-    //   PrintF("request_cache is now: %s\n", request_cache_oss.str().c_str());
-    // }
-
-    // Add a "code_hash" field with utf8_func_hash
-    root["code_hash"] = utf8_func_hash;
-    writer.write(updated_oss, root);
-    updated_jsonData = updated_oss.str();
-
-    curl_easy_setopt(curl, CURLOPT_URL, "http://localhost:5000/api/phase1/undefined_value");
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-
-    struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, updated_jsonData.c_str());
-    if (FLAG_debug_print) {
-      PrintF("jsonData is %s\n", updated_jsonData.c_str());
-      PrintF("utf8_func_hash is %s\n", utf8_func_hash.c_str());
-    }
-
-    // Async approach:
-    // Set a callback function to handle the response
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    std::string response;
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-    // Chatgpt advice: Set the request to be performed asynchronously
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 1L);
-
-    multi_handle = curl_multi_init();
-    curl_multi_add_handle(multi_handle, curl);
-
-    int still_running;
-    do {
-        curl_multi_perform(multi_handle, &still_running);
-    } while (still_running);
-
-    // Check for errors
-    res = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-    if (FLAG_debug_print) {
-      PrintF("http_code is %ld\n", http_code);
-    }
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-    curl_multi_cleanup(multi_handle);
+  // Check if this request is in cache and discard if so
+  // Define: a request is in the cache if code_hash and key are the same
+  /*
+  {codehash: key: row,col}
+  */
+  // Check if the cache contains the hash
+  std::string row_col = map.at("row") + "," + map.at("col");
+  std::string key = map.at("key");
+  if (!request_cache[utf8_func_hash].isNull()) {
+      if (!request_cache[utf8_func_hash][key].isNull()) {
+          if (!request_cache[utf8_func_hash][key][row_col].isNull()) {
+              if (FLAG_debug_print) {
+                PrintF("duplicate req skipped: [%s][%s][%s]\n", utf8_func_hash.c_str(), key.c_str(), row_col.c_str());
+              }
+              return "Warning: duplicate"; // Request is in cache, drop it
+          } else {
+              // Add to request_cache
+              request_cache[utf8_func_hash][key][row_col] = true;
+          }
+      } else {
+          // Key doesn't exist for this hash, add both key and row_col
+          request_cache[utf8_func_hash][key][row_col] = true;
+      }
+  } else {
+      // Hash doesn't exist in the cache, add hash, key, and row_col
+      request_cache[utf8_func_hash][key][row_col] = true;
   }
-  curl_global_cleanup();
+
+  // Post the request
+  
   return "Successfully post undefined value";
 }
 
 // Added by Inactive
 std::string HeapObject::post_undefined_value(LookupIterator* it, int phase_num, std::string start_key_str) {
   return HeapObject::post_undefined_value(it->isolate(), it->GetName(), phase_num, start_key_str);
+}
+
+// Inactive: 
+void HeapObject::add_log_to_undef_prop_dataset(std::map<std::string, std::string> data) {
+    auto row_col_str = data["row"] + "," + data["col"];
+
+    auto code_hash_obj = undef_prop_dataset_collection.find_one(make_document(kvp("_id", data["code_hash"])));
+    if (code_hash_obj) {
+        auto code_hash_value = code_hash_obj->view();
+        auto key_value_dict_view = code_hash_value["key_value_dict"].get_document().view();
+        bsoncxx::builder::basic::array new_row_col_list{};
+        // code_hash already exists, check if key exists
+        if (key_value_dict_view.find(data["key"]) != key_value_dict_view.end()) {
+            // key also exists, check if row_col exists
+            auto row_col_list = key_value_dict_view[data["key"]].get_array().value;
+            bool row_col_exists = false;
+            for (auto& element : row_col_list) {
+                if (std::string(element.get_string().value.to_string()) == row_col_str) {
+                    row_col_exists = true;
+                    break;
+                }
+                new_row_col_list.append(element.get_value());
+            }
+
+            if (!row_col_exists) {
+                new_row_col_list.append(row_col_str); // Add new row_col_str
+            }
+        } else {
+            // key does not exist, add it
+            new_row_col_list.append(row_col_str);
+        }
+        // Update the document
+        bsoncxx::builder::basic::document new_key_value_dict{};
+        for (auto& element : key_value_dict_view) {
+            new_key_value_dict.append(kvp(element.key(), element.get_value()));
+        }
+        new_key_value_dict.append(kvp(data["key"], new_row_col_list.extract()));
+
+        undef_prop_dataset_collection.update_one(
+            make_document(kvp("_id", data["code_hash"])),
+            make_document(kvp("$set", make_document(kvp("key_value_dict", new_key_value_dict.extract()))))
+        );
+
+    } else {
+        // code_hash does not exist, add it
+        undef_prop_dataset_collection.insert_one(
+        make_document(
+            kvp("_id", data["code_hash"]), 
+            kvp("key_value_dict", make_document(kvp(data["key"], make_array(row_col_str))))
+        )
+    );
+    }
+}
+
+// Inactive: 
+void HeapObject::add_log_to_phase_info(std::map<std::string, std::string> data) {
+    auto row_col_str = data["row"] + "," + data["col"];
+
+    auto site_obj = phase_info_collection.find_one(make_document(kvp("_id", data["site"])));
+    if (site_obj) {
+        auto site_value = site_obj->view();
+        auto code_hash_dict_view = site_value["code_hash_dict"].get_document().view();
+        // site already exists, check if code_hash exists
+        if (code_hash_dict_view.find(data["code_hash"]) != code_hash_dict_view.end()) {
+            // code_hash also exists, check if key exists
+            auto key_value_dict_view = code_hash_dict_view[data["code_hash"]].get_document().view();
+            bsoncxx::builder::basic::array new_row_col_list{};
+            if (key_value_dict_view.find(data["key"]) != key_value_dict_view.end()) {
+                // key also exists, check if row_col exists
+                auto row_col_list = key_value_dict_view[data["key"]].get_array().value[0].get_array().value;
+                bool row_col_exists = false;
+                for (auto& element : row_col_list) {
+                    if (std::string(element.get_string().value.to_string()) == row_col_str) {
+                        row_col_exists = true;
+                        break;
+                    }
+                    new_row_col_list.append(element.get_value());
+                }
+                // if row_col does not exist, add it
+                if (!row_col_exists) {an
+                    new_row_col_list.append(row_col_str);
+                    phase_info_collection.update_one(
+                        make_document(kvp("_id", data["site"])),
+                        make_document(kvp("$set", make_document(kvp("code_hash_dict." + data["code_hash"] + "." + data["key"] + ".0", new_row_col_list.extract())))
+                    ));
+                }
+            } else {
+                // key does not exist, add it
+                new_row_col_list.append(row_col_str);
+                phase_info_collection.update_one(
+                    make_document(kvp("_id", data["site"])),
+                    make_document(kvp("$set", make_document(kvp("code_hash_dict." + data["code_hash"] + "." + data["key"], make_array(new_row_col_list.extract(), data["js"], data["func_name"], data["func"])))))
+                );
+            }
+        } else {
+            // code_hash does not exist, add it
+            phase_info_collection.update_one(
+                make_document(kvp("_id", data["site"])),
+                make_document(kvp("$set", make_document(kvp("code_hash_dict." + data["code_hash"], make_document(kvp(data["key"], make_array(make_array(row_col_str), data["js"], data["func_name"], data["func"]))))))
+            ));
+        }
+    } else {
+        // site does not exist, add it
+        phase_info_collection.insert_one(
+            make_document(
+                kvp("_id", data["site"]), 
+                kvp("code_hash_dict", make_document(kvp(data["code_hash"], make_document(kvp(data["key"], 
+                    make_array(make_array(row_col_str), data["js"], data["func_name"], data["func"]))))))));
+    }
+}
+
+// Inactive: 
+// this is the same as the phase1/undefined route in the backend server
+std::string HeapObject::log_phase1_db(std::map<std::string, std::string> data) {
+    auto required_fields = {"phase", "start_key", "site", "key", "func_name", "js", "row", "col", "func", "code_hash"};
+    for (auto field : required_fields) {
+        if (data.find(field) == data.end()) {
+            return std::string("Missing required field: ") + std::string(field);
+        }
+    }
+
+    // check if the phase is valid (phase == "1")
+    // TODO: change to phase % 2 == 1 (convert to int first)
+    if (data["phase"].compare("1") != 0) {
+        return "Invalid phase";
+    }
+
+    // check if the start_key is valid
+    auto valid_start_keys = {"RTO", "RAP0", "RAP1", "JRGDP", "OGPWII", "GPWFAC"};
+    if (std::find(valid_start_keys.begin(), valid_start_keys.end(), data["start_key"]) == valid_start_keys.end()) {
+        return "Invalid start_key";
+    }
+
+    // sanitize site, change dots to underscores
+    data["site"] = std::regex_replace(data["site"], std::regex("\\."), "_");
+
+    // sanitize all other fields, change dots to \\2E, change dollar signs to \\24
+    for (auto field : data) {
+        if (field.first.compare("site") != 0) {
+            data[field.first] = std::regex_replace(data[field.first], std::regex("\\."), "\\2E");
+            data[field.first] = std::regex_replace(data[field.first], std::regex("\\$"), "\\24");
+        }
+    }
+
+    // add log to undef_prop_dataset
+    HeapObject::add_log_to_undef_prop_dataset(data);
+
+    // add log to phase_info 
+    HeapObject::add_log_to_phase_info(data);
+
+    return "Success";        
 }
 
 Handle<Object> JSReceiver::GetDataProperty(LookupIterator* it) {

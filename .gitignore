@@ -102,3 +102,5 @@ turbo*.dot
 turbo*.json
 v8.ignition_dispatches_table.json
 /src/curl*
+/src/cmake*
+/src/mongo-cxx*

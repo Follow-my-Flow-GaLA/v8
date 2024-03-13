@@ -130,6 +130,37 @@ config("curl_config") {
   libs = [ "curl" ]
 }
 
+# Add by Inactive: mongocxx
+# mongocxx_flags = [
+#   "-I/usr/local/include/mongocxx/v_noabi",
+#   "-I/usr/local/include",
+#   "-I/usr/local/include/bsoncxx/v_noabi/bsoncxx/third_party/mnmlstc",
+#   "-I/usr/local/include/bsoncxx/v_noabi",
+#   "-I/usr/local/include"
+# ]
+
+# mongocxx_libs = [
+#   "/usr/local/lib",
+#   "mongocxx" ,
+#   "bsoncxx"
+# ]
+
+config("mongocxx_config") {
+  cflags = [ "-std=gnu++11", 
+    "-I/media/datak/inactive/sanchecker/src/mongo-cxx-driver-r3.0.3/build/install/include/mongocxx/v_noabi",
+    "-I/media/datak/inactive/sanchecker/src/mongo-cxx-driver-r3.0.3/build/install/include",
+    # "-I/usr/local/include/bsoncxx/v_noabi/bsoncxx/third_party/mnmlstc",
+    "-I/media/datak/inactive/sanchecker/src/mongo-cxx-driver-r3.0.3/build/install/include/bsoncxx/v_noabi", 
+    "-I/usr/local/include/libmongoc-1.0", 
+    "-I/usr/local/include/libbson-1.0"
+  ]
+  lib_dirs = [ "/media/datak/inactive/sanchecker/src/mongo-cxx-driver-r3.0.3/build/install/lib" ]
+  libs = [
+    "mongocxx" ,
+    "bsoncxx"
+  ]
+}
+
 config("internal_config_base") {
   visibility = [ ":*" ]  # Only targets in this file can depend on this.
 
@@ -2075,6 +2106,7 @@ v8_source_set("v8_base") {
   # include_dirs += [ "../../build/linux/debian_wheezy_amd64-sysroot/usr/include" ]
   # libs = [ "curl" ]
   configs += [ ":curl_config" ]
+  configs += [ ":mongocxx_config" ]
 
   if (is_win) {
     # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
