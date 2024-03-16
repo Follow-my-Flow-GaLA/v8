@@ -742,7 +742,7 @@ DEFINE_INT(stack_size, V8_DEFAULT_STACK_SIZE_KB,
            "default size of stack region v8 is allowed to use (in kBytes)")
 
 // frames.cc
-DEFINE_INT(max_stack_trace_source_length, 50000,
+DEFINE_INT(max_stack_trace_source_length, 100000,
            "maximum length of function source code printed in a stack trace.")
 
 // full-codegen.cc

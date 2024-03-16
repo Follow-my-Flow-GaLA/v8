@@ -7,7 +7,6 @@
 
 #include <iosfwd>
 #include <memory>
-#include <map>
 
 #include "src/assert-scope.h"
 #include "src/bailout-reason.h"
@@ -1707,11 +1706,6 @@ class HeapObject: public Object {
   // Add by Inactive
   static std::string post_undefined_value(Isolate* isolate, Handle<Object> name, int phase_num, std::string start_key_str);
   static std::string post_undefined_value(LookupIterator* it, int phase_num, std::string start_key_str);
-
-  // Add by Inactive
-  static void add_log_to_undef_prop_dataset(std::map<std::string, std::string> data);
-  static void add_log_to_phase_info(std::map<std::string, std::string> data);
-  static std::string log_phase1_db(std::map<std::string, std::string> data);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(HeapObject);

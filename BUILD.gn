@@ -36,7 +36,7 @@ declare_args() {
 
   # Sets -dENABLE_DISASSEMBLER.
   # Inactive XSS Debug
-  v8_enable_disassembler = true
+  v8_enable_disassembler = ""
 
   # Sets -dENABLE_GDB_JIT_INTERFACE.
   v8_enable_gdbjit = ""
@@ -57,7 +57,7 @@ declare_args() {
 
   # Sets -dOBJECT_PRINT.
   # Inactive XSS Debug 
-  v8_object_print = true
+  v8_object_print = ""
 
   # With post mortem support enabled, metadata is embedded into libv8 that
   # describes various parameters of the VM for use by debuggers. See
@@ -128,37 +128,6 @@ config("curl_config") {
   include_dirs = [ "/usr/include/x86_64-linux-gnu/curl" ]
   lib_dirs = [ "/usr/lib/x86_64-linux-gnu" ]
   libs = [ "curl" ]
-}
-
-# Add by Inactive: mongocxx
-# mongocxx_flags = [
-#   "-I/usr/local/include/mongocxx/v_noabi",
-#   "-I/usr/local/include",
-#   "-I/usr/local/include/bsoncxx/v_noabi/bsoncxx/third_party/mnmlstc",
-#   "-I/usr/local/include/bsoncxx/v_noabi",
-#   "-I/usr/local/include"
-# ]
-
-# mongocxx_libs = [
-#   "/usr/local/lib",
-#   "mongocxx" ,
-#   "bsoncxx"
-# ]
-
-config("mongocxx_config") {
-  cflags = [ "-std=gnu++11", 
-    "-I/media/datak/inactive/sanchecker/src/mongo-cxx-driver-r3.0.3/build/install/include/mongocxx/v_noabi",
-    "-I/media/datak/inactive/sanchecker/src/mongo-cxx-driver-r3.0.3/build/install/include",
-    # "-I/usr/local/include/bsoncxx/v_noabi/bsoncxx/third_party/mnmlstc",
-    "-I/media/datak/inactive/sanchecker/src/mongo-cxx-driver-r3.0.3/build/install/include/bsoncxx/v_noabi", 
-    "-I/usr/local/include/libmongoc-1.0", 
-    "-I/usr/local/include/libbson-1.0"
-  ]
-  lib_dirs = [ "/media/datak/inactive/sanchecker/src/mongo-cxx-driver-r3.0.3/build/install/lib" ]
-  libs = [
-    "mongocxx" ,
-    "bsoncxx"
-  ]
 }
 
 config("internal_config_base") {
@@ -2101,12 +2070,8 @@ v8_source_set("v8_base") {
   # Include capnp for taint tracking logging
   include_dirs = [ rebase_path("$target_gen_dir/", root_build_dir) ]
 
-  # # Add by Inactive: curl
-  # include_dirs += [ "/usr/include/x86_64-linux-gnu/curl" ]
-  # include_dirs += [ "../../build/linux/debian_wheezy_amd64-sysroot/usr/include" ]
-  # libs = [ "curl" ]
+  # Add by Inactive: curl
   configs += [ ":curl_config" ]
-  configs += [ ":mongocxx_config" ]
 
   if (is_win) {
     # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
